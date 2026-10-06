@@ -1,0 +1,23 @@
+[Unit]
+Description=Personal Site NAS Monitor Push Agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=personal-monitor
+Group=personal-monitor
+EnvironmentFile=/etc/personal-site/nas-monitor.env
+ExecStart=/usr/bin/python3 /opt/personal-site/nas-monitor.py
+Restart=always
+RestartSec=10
+MemoryMax=64M
+TasksMax=16
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadOnlyPaths=/proc
+
+[Install]
+WantedBy=multi-user.target

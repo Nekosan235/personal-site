@@ -1,0 +1,26 @@
+{
+    default_sni 203.0.113.10
+}
+
+(ip_certificate) {
+    tls {
+        issuer acme {
+            dir https://acme-v02.api.letsencrypt.org/directory
+            profile shortlived
+        }
+    }
+}
+
+http://203.0.113.10 {
+    redir https://203.0.113.10{uri} 308
+}
+
+https://203.0.113.10 {
+    import ip_certificate
+    reverse_proxy 127.0.0.1:3010
+}
+
+https://203.0.113.10:8443 {
+    import ip_certificate
+    reverse_proxy 127.0.0.1:3001
+}

@@ -1,0 +1,34 @@
+[Unit]
+Description=Personal Site Toolbox
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=personal-site
+Group=personal-site
+WorkingDirectory=/opt/personal-site/current
+Environment=NODE_ENV=production
+EnvironmentFile=/etc/personal-site/site.env
+ExecStart=/usr/local/bin/node /opt/personal-site/current/server/index.js
+StateDirectory=personal-site
+StateDirectoryMode=0700
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=20
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+MemoryHigh=128M
+MemoryMax=256M
+TasksMax=64
+
+[Install]
+WantedBy=multi-user.target
