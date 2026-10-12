@@ -1,14 +1,16 @@
-import { element, pageHeading, statusBadge, internalLink } from '../components/dom.js?v=1.2.0';
-import { icon } from '../components/icons.js?v=1.2.0';
+import { element, pageHeading, statusBadge, internalLink } from '../components/dom.js?v=1.3.0';
+import { icon } from '../components/icons.js?v=1.3.0';
 
 export function renderAgents({ module }) {
   return element('div', { className: 'agents-page page-enter' }, [
-    pageHeading(module.title, '给未来的助手，留好位置。', statusBadge(module.status)),
-    element('section', { className: 'empty-state agent-empty-state' }, [
-      icon('agents', 'empty-icon'),
-      element('h2', { text: '这里还没有 Agent。' }),
-      element('p', { text: '这个模块还在规划中。之后可以在这里集中查看和管理你的 Agent。' }),
-      internalLink('/tools', '先去看看工具箱 →'),
+    pageHeading(module.title, 'Agent 管理功能尚未开放。', statusBadge(module.status)),
+    element('section', { className: 'card' }, [
+      element('div', { className: 'empty-state agent-empty-state card-body text-center' }, [
+        icon('agents', 'empty-icon icon mb-3'),
+        element('h2', { className: 'card-title justify-content-center', text: 'Agent 管理仍在规划中' }),
+        element('p', { className: 'text-secondary', text: '当前没有接入任何 Agent，也不提供创建或管理功能。' }),
+        internalLink('/tools', '查看工具箱', 'text-link btn btn-outline-primary'),
+      ]),
     ]),
   ]);
 }

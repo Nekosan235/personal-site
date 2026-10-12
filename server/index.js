@@ -19,6 +19,7 @@ import { NasMonitorStore, cloudDashboardDevice } from './providers/nas.js';
 const PUBLIC_ASSETS = new Set([
   '/assets/login.js',
   '/assets/styles.css',
+  '/assets/vendor/tabler/tabler.min.css',
   '/assets/favicon.svg',
   '/assets/theme-bootstrap.js',
   '/assets/components/ambient.js',

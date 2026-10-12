@@ -6,4 +6,5 @@
   const theme = ['light', 'dark'].includes(saved?.mode) ? saved.mode
     : saved?.mode === 'solar' && ['light', 'dark'].includes(saved?.resolved) ? saved.resolved : system;
   document.documentElement.setAttribute('data-theme', theme);
+  document.documentElement.setAttribute('data-bs-theme', theme);
 })();

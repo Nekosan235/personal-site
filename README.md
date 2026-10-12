@@ -1,6 +1,8 @@
 # 个人空间
 
-一个轻量、自托管的个人工具箱：原生 Node.js 后端、HTML/CSS/ES modules 前端，系统字体、简洁留白、日夜主题和随页面滚动变化的背景。
+一个轻量、自托管的个人工具箱：原生 Node.js 后端、HTML/CSS/ES modules 前端。界面使用本地托管的 [Tabler 1.6.1](https://github.com/tabler/tabler)（MIT）UI kit，提供侧边导航、设备监控卡片、响应式工具页面和日夜主题。保留原有认证与监控接口，运行时仍无需 npm 依赖或前端构建。
+
+Tabler 样式位于 `public/assets/vendor/tabler/tabler.min.css`，上游许可及 Bootstrap 许可保存在同目录的 `LICENSE`。模板脚本、示例数据、外部 CDN、字体服务和付费图表库未引入。外观控制器同时维护 `data-theme` 与 Tabler 的 `data-bs-theme`。
 
 ## 功能
 

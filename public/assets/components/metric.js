@@ -1,4 +1,4 @@
-import { element } from './dom.js?v=1.2.0';
+import { element } from './dom.js?v=1.3.0';
 
 const namespace = 'http://www.w3.org/2000/svg';
 const numberFormat = new Intl.NumberFormat('zh-CN', { maximumFractionDigits: 2 });

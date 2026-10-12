@@ -1,5 +1,5 @@
-import { element } from './dom.js?v=1.2.0';
-import { icon } from './icons.js?v=1.2.0';
+import { element } from './dom.js?v=1.3.0';
+import { icon } from './icons.js?v=1.3.0';
 
 export function loadingView() {
   return element('div', { className: 'page-loading', attributes: { role: 'status' } }, [
@@ -10,7 +10,7 @@ export function loadingView() {
 
 export function errorView(onRetry) {
   const button = element('button', {
-    className: 'button button-primary',
+    className: 'btn btn-primary',
     text: '重新加载',
     attributes: { type: 'button' },
   });

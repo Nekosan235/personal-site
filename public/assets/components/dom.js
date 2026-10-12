@@ -38,16 +38,16 @@ export function statusLabel(status) {
 
 export function statusBadge(status) {
   return element('span', {
-    className: `status-badge ${status === 'ready' ? 'status-ready' : 'status-planned'}`,
+    className: `status-badge badge ${status === 'ready' ? 'status-ready bg-green-lt' : 'status-planned bg-secondary-lt'}`,
     text: statusLabel(status),
   });
 }
 
 export function pageHeading(title, description, trailing) {
-  return element('header', { className: 'page-heading' }, [
+  return element('header', { className: 'page-heading page-header' }, [
     element('div', { className: 'page-heading-copy' }, [
-      element('h1', { text: title }),
-      element('p', { className: 'page-description', text: description }),
+      element('h1', { className: 'page-title', text: title }),
+      element('p', { className: 'page-description text-secondary', text: description }),
     ]),
     trailing,
   ]);

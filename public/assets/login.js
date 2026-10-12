@@ -1,12 +1,10 @@
-import { createThemeController } from './components/theme.js?v=1.2.0';
-import { createAppearanceSettings } from './components/appearance.js?v=1.2.0';
-import { createAmbientBackground } from './components/ambient.js?v=1.2.0';
+import { createThemeController } from './components/theme.js?v=1.3.0';
+import { createAppearanceSettings } from './components/appearance.js?v=1.3.0';
 
 const theme = createThemeController();
 const appearance = createAppearanceSettings(theme);
 document.body.append(appearance.element);
 document.querySelector('#login-appearance').addEventListener('click', appearance.open);
-createAmbientBackground();
 
 const form = document.querySelector('#login-form');
 const username = document.querySelector('#username');

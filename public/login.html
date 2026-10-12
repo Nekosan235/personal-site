@@ -7,45 +7,41 @@
     <meta name="csrf-token" content="{{CSRF_TOKEN}}">
     <meta name="description" content="登录个人空间，查看服务器概况与常用工具。">
     <title>登录 · 个人空间</title>
-    <script src="/assets/theme-bootstrap.js?v=1.2.0"></script>
-    <link rel="icon" href="/assets/favicon.svg?v=1.2.0" type="image/svg+xml">
-    <link rel="stylesheet" href="/assets/styles.css?v=1.2.0">
-    <script type="module" src="/assets/login.js?v=1.2.0"></script>
+    <script src="/assets/theme-bootstrap.js?v=1.3.0"></script>
+    <link rel="icon" href="/assets/favicon.svg?v=1.3.0" type="image/svg+xml">
+    <link rel="stylesheet" href="/assets/vendor/tabler/tabler.min.css?v=1.6.1">
+    <link rel="stylesheet" href="/assets/styles.css?v=1.3.0">
+    <script type="module" src="/assets/login.js?v=1.3.0"></script>
   </head>
   <body class="login-body">
-    <button id="login-appearance" class="login-appearance button button-secondary" type="button" aria-haspopup="dialog">外观设置</button>
+    <button id="login-appearance" class="login-appearance btn btn-ghost-secondary" type="button" aria-haspopup="dialog">外观设置</button>
     <main class="login-layout">
-      <section class="login-introduction" aria-labelledby="welcome-title">
-        <a class="brand login-brand" href="/login" aria-label="个人空间">
-          <img src="/assets/favicon.svg?v=1.2.0" alt="" width="32" height="32">
-          <span>个人空间</span>
-        </a>
-        <div class="login-welcome">
-          <p class="eyebrow">为自己，留一个空间。</p>
-          <h1 id="welcome-title">你的工具。<br>你的云端。</h1>
-          <p class="login-description">服务器概况与常用工具，<br class="desktop-break">从这里开始，井然有序。</p>
-        </div>
-        <p class="login-footnote">简单一点，专注于重要的事。</p>
-      </section>
-      <section class="login-panel" aria-labelledby="login-title">
-        <div class="login-panel-content">
-          <h2 id="login-title">欢迎回来。</h2>
-          <p class="section-description">登录你的个人空间。</p>
+      <a class="brand login-brand" href="/login" aria-label="个人空间">
+        <span class="brand-mark" aria-hidden="true">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h7v7h-7z"/></svg>
+        </span>
+        <span><strong>个人空间</strong><small>设备与工具工作台</small></span>
+      </a>
+      <section class="login-panel card card-md" aria-labelledby="login-title">
+        <div class="login-panel-content card-body">
+          <h1 id="login-title" class="card-title">登录你的工作台</h1>
+          <p class="section-description">管理云端设备，打开常用工具。</p>
           <form id="login-form" class="login-form" method="post" action="/api/auth/login">
             <div class="form-field">
-              <label for="username">用户名</label>
-              <input id="username" name="username" type="text" autocomplete="username" autocapitalize="none" spellcheck="false" required maxlength="128">
+              <label class="form-label" for="username">用户名</label>
+              <input class="form-control" id="username" name="username" type="text" autocomplete="username" autocapitalize="none" spellcheck="false" placeholder="输入用户名" required maxlength="128">
             </div>
             <div class="form-field">
-              <label for="password">密码</label>
-              <input id="password" name="password" type="password" autocomplete="current-password" required maxlength="1024">
+              <label class="form-label" for="password">密码</label>
+              <input class="form-control" id="password" name="password" type="password" autocomplete="current-password" placeholder="输入密码" required maxlength="1024">
             </div>
-            <p id="login-error" class="form-error" role="alert" hidden></p>
-            <button id="login-submit" class="button button-primary login-submit" type="submit">登录</button>
+            <p id="login-error" class="form-error alert alert-danger" role="alert" hidden></p>
+            <button id="login-submit" class="btn btn-primary login-submit" type="submit">登录</button>
           </form>
           <p class="login-private-note">此空间仅向已授权的账户开放。</p>
         </div>
       </section>
+      <p class="login-footnote">你的设备，你的工作台。</p>
     </main>
   </body>
 </html>

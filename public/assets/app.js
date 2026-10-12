@@ -1,14 +1,13 @@
-import { apiRequest, ApiError } from './components/api.js?v=1.2.0';
-import { createNavigation } from './components/navigation.js?v=1.2.0';
-import { element, internalLink, pageHeading, safeInternalPath, safeExternalHref } from './components/dom.js?v=1.2.0';
-import { errorView, loadingView } from './components/feedback.js?v=1.2.0';
-import { renderDashboard } from './pages/dashboard.js?v=1.2.0';
-import { renderTools } from './pages/tools.js?v=1.2.0';
-import { renderAgents } from './pages/agents.js?v=1.2.0';
-import { renderPlaceholder } from './pages/placeholder.js?v=1.2.0';
-import { createThemeController } from './components/theme.js?v=1.2.0';
-import { createAppearanceSettings } from './components/appearance.js?v=1.2.0';
-import { createAmbientBackground } from './components/ambient.js?v=1.2.0';
+import { apiRequest, ApiError } from './components/api.js?v=1.3.0';
+import { createNavigation } from './components/navigation.js?v=1.3.0';
+import { element, internalLink, pageHeading, safeInternalPath, safeExternalHref } from './components/dom.js?v=1.3.0';
+import { errorView, loadingView } from './components/feedback.js?v=1.3.0';
+import { renderDashboard } from './pages/dashboard.js?v=1.3.0';
+import { renderTools } from './pages/tools.js?v=1.3.0';
+import { renderAgents } from './pages/agents.js?v=1.3.0';
+import { renderPlaceholder } from './pages/placeholder.js?v=1.3.0';
+import { createThemeController } from './components/theme.js?v=1.3.0';
+import { createAppearanceSettings } from './components/appearance.js?v=1.3.0';
 
 const main = document.querySelector('#main-content');
 const navigationRoot = document.querySelector('#navigation-root');
@@ -59,7 +58,6 @@ async function renderRoute({ focus = false } = {}) {
     const view = render ? await render({ module, modules, session, signal: request.signal }) : routeNotFound();
     if (request.signal.aborted) return;
     main.replaceChildren(view);
-    createAmbientBackground({ signal: request.signal });
     document.title = `${module?.title || '页面未找到'} · 个人空间`;
     if (focus) main.focus({ preventScroll: true });
   } catch (error) {
@@ -100,6 +98,7 @@ async function bootstrap() {
         ? { ...module, href: safeExternalHref(module.href) }
         : { ...module, path: safeInternalPath(module.path) })
       .filter((module) => module.external ? module.href : module.path);
+    navigation?.destroy?.();
     navigation = createNavigation({ modules, username: session.user.username, onLogout: logout, onAppearance: appearance.open });
     navigationRoot.replaceChildren(navigation.element);
     await renderRoute();

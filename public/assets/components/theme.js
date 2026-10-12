@@ -1,4 +1,4 @@
-import { detectedTimeZone, referenceCities, resolveLocation, solarTimes, solarIsDay } from './solar.js?v=1.2.0';
+import { detectedTimeZone, referenceCities, resolveLocation, solarTimes, solarIsDay } from './solar.js?v=1.3.0';
 
 export const appearanceKey = 'personal-space.appearance.v1';
 export const themeModes = ['light', 'dark', 'system', 'solar'];
@@ -53,6 +53,7 @@ export function createThemeController({
     const resolved = resolveTheme(preference, media.matches, date, times);
     state = { preference, resolved, location, times, timeZone };
     root.setAttribute('data-theme', resolved);
+    root.setAttribute('data-bs-theme', resolved);
     try { localStore?.setItem(appearanceKey, JSON.stringify({ ...preference, resolved })); } catch { /* Private browsing can disable storage. */ }
     for (const listener of listeners) listener(state);
     if (preference.mode === 'solar' && visibility.visibilityState !== 'hidden') {

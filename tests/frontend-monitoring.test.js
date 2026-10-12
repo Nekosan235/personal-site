@@ -269,7 +269,7 @@ test('cloud and push NAS keep independent stable cards and volume readings witho
   assert.equal(volumes.children.length, 2);
   assert.match(volumes.textContent, /\/vol1/);
   assert.match(volumes.textContent, /200/);
-  const names = cards.map((card) => findClasses(card, 'server-heading')[0].children[0].children[1].getAttribute('id'));
+  const names = cards.map((card) => findClass(card, 'device-name').getAttribute('id'));
   assert.notEqual(names[0], names[1]);
   view.title.textContent = '保持专注';
   view.update({ mode: 'live', devices: [cloud, { ...nas, stale: true }] });

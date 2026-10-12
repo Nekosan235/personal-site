@@ -1,8 +1,9 @@
-import { apiRequest } from '../components/api.js?v=1.2.0';
-import { element, pageHeading, internalLink, externalLink, safeExternalHref } from '../components/dom.js?v=1.2.0';
-import { createMetricPanel, readMetric } from '../components/metric.js?v=1.2.0';
-import { createPoller } from '../components/poller.js?v=1.2.0';
-import { createWelcomeRotation } from '../components/welcome.js?v=1.2.0';
+import { apiRequest } from '../components/api.js?v=1.3.0';
+import { element, pageHeading, internalLink, externalLink, safeExternalHref } from '../components/dom.js?v=1.3.0';
+import { createMetricPanel, readMetric } from '../components/metric.js?v=1.3.0';
+import { createPoller } from '../components/poller.js?v=1.3.0';
+import { createWelcomeRotation } from '../components/welcome.js?v=1.3.0';
+import { icon } from '../components/icons.js?v=1.3.0';
 
 const intervalMs = 5000;
 const timeFormat = new Intl.DateTimeFormat('zh-CN', {
@@ -70,9 +71,9 @@ function createDeviceView({ now, index }) {
     attributes: { role: 'status' },
   });
   const headingId = `device-name-${index}`;
-  const name = element('h2', { text: '设备', attributes: { id: headingId } });
+  const name = element('h2', { className: 'device-name', text: '设备', attributes: { id: headingId } });
   const kind = element('p', { className: 'eyebrow', text: '设备监控' });
-  const status = element('span', { className: 'server-status', text: '连接中' });
+  const status = element('span', { className: 'server-status badge bg-secondary-lt', text: '连接中' });
   const memory = createMetricPanel('内存');
   const disk = createMetricPanel('硬盘');
   const sampledAtLabel = element('span', { text: '最后采样 ' });
@@ -81,7 +82,7 @@ function createDeviceView({ now, index }) {
   const failureTime = element('span', { className: 'monitor-failure-time' });
   const cpu = element('span', { text: 'CPU 待获取' });
   const uptime = element('span', { text: '运行时间待获取' });
-  const page = element('div', { className: 'device-card' });
+  const page = element('div', { className: 'device-card card' });
   const metrics = element('div', { className: 'metrics-grid' }, [memory.element, disk.element]);
   const volumeList = element('div', { className: 'device-volumes', attributes: { hidden: '' } });
   const volumes = new Map();
@@ -98,21 +99,25 @@ function createDeviceView({ now, index }) {
     ]));
   }
   page.append(element('section', { className: 'server-overview', attributes: { 'aria-labelledby': headingId } }, [
-    element('div', { className: 'server-heading' }, [
-      element('div', {}, [
-        kind,
-        name,
+    element('div', { className: 'server-heading card-header' }, [
+      element('div', { className: 'device-identity' }, [
+        element('span', { className: 'device-avatar avatar bg-blue-lt' }, [icon('server', 'icon')]),
+        element('div', {}, [kind, name]),
       ]),
       status,
     ]),
-    serverFacts,
-    element('div', { className: 'server-runtime' }, [cpu, uptime]),
-    metrics, volumeList,
+    element('div', { className: 'server-content card-body' }, [
+      serverFacts,
+      element('div', { className: 'server-runtime' }, [cpu, uptime]),
+      metrics, volumeList,
+    ]),
   ]));
-  page.append(element('div', { className: 'monitoring-meta' }, [
-    element('p', { className: 'updated-at' }, [sampledAtLabel, sampledAtTime]), refreshHint, failureTime,
+  page.append(element('div', { className: 'device-footer card-footer' }, [
+    element('div', { className: 'monitoring-meta' }, [
+      element('p', { className: 'updated-at' }, [sampledAtLabel, sampledAtTime]), refreshHint, failureTime,
+    ]),
+    notice,
   ]));
-  page.append(notice);
 
   let lastSample = null;
   let lastData = null;
@@ -135,6 +140,9 @@ function createDeviceView({ now, index }) {
     setText(status, copy[1]);
     setText(notice, copy[2]);
     status.classList.toggle('is-online', display === 'healthy');
+    status.classList.toggle('bg-green-lt', display === 'healthy');
+    status.classList.toggle('bg-yellow-lt', !['healthy', 'connecting', 'paused', 'mock'].includes(display));
+    status.classList.toggle('bg-secondary-lt', ['connecting', 'paused', 'mock'].includes(display));
     notice.classList.toggle('is-warning', !['healthy', 'connecting', 'paused', 'mock'].includes(display));
     setText(sampledAtLabel, display === 'mock' ? '示例更新 '
       : ['failed', 'stale', 'partial', 'paused'].includes(display) ? '最后有效采样 ' : '最后采样 ');
@@ -223,7 +231,7 @@ function createDeviceView({ now, index }) {
 }
 
 export function createDashboardView({ modules, now = Date.now }) {
-  const badge = element('span', { className: 'monitor-badge', text: '实时监控' });
+  const badge = element('span', { className: 'monitor-badge badge bg-blue-lt', text: '实时监控' });
   const notice = element('p', {
     className: 'data-notice monitoring-notice', text: '正在获取设备数据…',
     attributes: { role: 'status', 'aria-live': 'polite' },
@@ -232,10 +240,10 @@ export function createDashboardView({ modules, now = Date.now }) {
   const title = heading.children[0].children[0];
   const list = element('div', { className: 'device-list', attributes: { 'aria-label': '设备监控' } });
   const page = element('div', { className: 'dashboard-page page-enter' }, [heading, notice, list]);
-  const links = [internalLink('/tools', '查看工具箱 →')];
+  const links = [internalLink('/tools', '查看工具箱', 'btn btn-outline-primary')];
   const codex = modules.find((module) => module.id === 'codex-web');
   const href = codex && safeExternalHref(codex.href);
-  if (href) links.push(externalLink(href, '打开 Codex Web ↗'));
+  if (href) links.push(externalLink(href, '打开 Codex Web', 'btn btn-primary'));
   page.append(element('div', { className: 'dashboard-links' }, links));
   let nextIndex = 1;
   const primary = createDeviceView({ now, index: nextIndex });
@@ -254,6 +262,8 @@ export function createDashboardView({ modules, now = Date.now }) {
     setText(badge, label);
     setText(notice, message);
     badge.classList.toggle('monitor-warning', errors > 0);
+    badge.classList.toggle('bg-yellow-lt', errors > 0);
+    badge.classList.toggle('bg-blue-lt', errors === 0);
     notice.classList.toggle('monitoring-warning', errors > 0);
   }
 

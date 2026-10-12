@@ -1,5 +1,5 @@
-import { element } from './dom.js?v=1.2.0';
-import { referenceCities } from './solar.js?v=1.2.0';
+import { element } from './dom.js?v=1.3.0';
+import { referenceCities } from './solar.js?v=1.3.0';
 
 const modes = [
   ['light', '浅色', '清晰、轻盈'],
@@ -10,34 +10,36 @@ const modes = [
 
 export function createAppearanceSettings(theme) {
   const close = element('button', {
-    className: 'button button-subtle appearance-close', text: '关闭',
+    className: 'button button-subtle appearance-close btn btn-ghost-secondary', text: '关闭',
     attributes: { type: 'button', 'aria-label': '关闭外观设置' },
   });
   const modeField = element('fieldset', { className: 'appearance-modes' }, [
-    element('legend', { text: '主题' }),
+    element('legend', { className: 'form-label', text: '主题' }),
   ]);
   const radios = new Map();
   for (const [value, title, description] of modes) {
-    const radio = element('input', { attributes: { type: 'radio', name: 'appearance-mode', value } });
+    const radio = element('input', { className: 'form-check-input', attributes: { type: 'radio', name: 'appearance-mode', value } });
     radios.set(value, radio);
     radio.addEventListener('change', () => {
       if (radio.checked) theme.setPreference({ ...theme.getState().preference, mode: value });
     });
-    modeField.append(element('label', { className: 'appearance-option' }, [
+    modeField.append(element('label', { className: 'appearance-option form-check' }, [
       radio,
-      element('span', {}, [element('span', { className: 'appearance-option-title', text: title }),
-        element('span', { className: 'appearance-option-note', text: description })]),
+      element('span', { className: 'form-check-label' }, [element('span', { className: 'appearance-option-title', text: title }),
+        element('span', { className: 'appearance-option-note text-secondary', text: description })]),
     ]));
   }
-  const location = element('select', { attributes: { id: 'appearance-location' } }, [
+  const location = element('select', { className: 'form-select', attributes: { id: 'appearance-location' } }, [
     element('option', { text: '自动 · 当前时区', attributes: { value: 'timezone' } }),
     ...referenceCities.map((city) => element('option', { text: city.name, attributes: { value: city.id } })),
     element('option', { text: '自定义经纬度', attributes: { value: 'custom' } }),
   ]);
   const latitude = element('input', {
+    className: 'form-control',
     attributes: { id: 'appearance-latitude', type: 'number', min: '-90', max: '90', step: 'any', inputmode: 'decimal' },
   });
   const longitude = element('input', {
+    className: 'form-control',
     attributes: { id: 'appearance-longitude', type: 'number', min: '-180', max: '180', step: 'any', inputmode: 'decimal' },
   });
   const coordinateError = element('p', {
@@ -45,11 +47,11 @@ export function createAppearanceSettings(theme) {
   });
   const custom = element('div', { className: 'appearance-custom', attributes: { hidden: '' } }, [
     element('div', { className: 'appearance-coordinates' }, [
-      element('div', { className: 'form-field' }, [element('label', { text: '纬度 −90 至 90', attributes: { for: 'appearance-latitude' } }), latitude]),
-      element('div', { className: 'form-field' }, [element('label', { text: '经度 −180 至 180', attributes: { for: 'appearance-longitude' } }), longitude]),
+      element('div', { className: 'form-field' }, [element('label', { className: 'form-label', text: '纬度 −90 至 90', attributes: { for: 'appearance-latitude' } }), latitude]),
+      element('div', { className: 'form-field' }, [element('label', { className: 'form-label', text: '经度 −180 至 180', attributes: { for: 'appearance-longitude' } }), longitude]),
     ]),
     coordinateError,
-    element('button', { className: 'button button-secondary', text: '应用参考位置', attributes: { type: 'submit' } }),
+    element('button', { className: 'button button-secondary btn btn-ghost-secondary', text: '应用参考位置', attributes: { type: 'submit' } }),
   ]);
   const reference = element('p', { className: 'appearance-reference' });
   const zone = element('p', { className: 'appearance-zone' });
@@ -58,7 +60,7 @@ export function createAppearanceSettings(theme) {
   const form = element('form', { className: 'appearance-form' }, [
     modeField,
     element('div', { className: 'appearance-location-field form-field' }, [
-      element('label', { text: '日出日落参考位置', attributes: { for: 'appearance-location' } }), location,
+      element('label', { className: 'form-label', text: '日出日落参考位置', attributes: { for: 'appearance-location' } }), location,
     ]),
     custom,
     element('div', { className: 'appearance-summary' }, [reference, zone, sun, referenceNote]),
