@@ -1,5 +1,5 @@
-import { element, pageHeading, statusBadge, internalLink } from '../components/dom.js?v=1.3.0';
-import { icon } from '../components/icons.js?v=1.3.0';
+import { element, pageHeading, statusBadge, internalLink } from '../components/dom.js?v=1.4.0';
+import { icon } from '../components/icons.js?v=1.4.0';
 
 export function renderAgents({ module }) {
   return element('div', { className: 'agents-page page-enter' }, [

@@ -2,7 +2,7 @@
 
 一个轻量、自托管的个人工具箱：原生 Node.js 后端、HTML/CSS/ES modules 前端。界面使用本地托管的 [Tabler 1.6.1](https://github.com/tabler/tabler)（MIT）UI kit，提供侧边导航、设备监控卡片、响应式工具页面和日夜主题。保留原有认证与监控接口，运行时仍无需 npm 依赖或前端构建。
 
-Tabler 样式位于 `public/assets/vendor/tabler/tabler.min.css`，上游许可及 Bootstrap 许可保存在同目录的 `LICENSE`。模板脚本、示例数据、外部 CDN、字体服务和付费图表库未引入。外观控制器同时维护 `data-theme` 与 Tabler 的 `data-bs-theme`。
+Tabler 样式位于 `public/assets/vendor/tabler/tabler.min.css`，上游许可及 Bootstrap 许可保存在同目录的 `LICENSE`。图片/GIF 处理复用 [wechat-toolbox](https://github.com/Nekosan235/wechat-toolbox) 中独立的像素算法与 GIF 编解码逻辑，来源许可位于 `public/assets/components/image-tools/LICENSE`。文件只在浏览器中读取并通过 ES module Worker 处理，没有文件上传 API、外部 CDN、第三方运行时依赖或构建步骤。外观控制器同时维护 `data-theme` 与 Tabler 的 `data-bs-theme`。
 
 ## 功能
 
@@ -12,7 +12,10 @@ Tabler 样式位于 `public/assets/vendor/tabler/tabler.min.css`，上游许可�
 - Linux 云服务器每 5 秒真实采样 CPU、内存、根分区容量与运行时长，保留最近 60 个样本。
 - NAS 用无依赖 Python 脚本每 15 秒主动通过 HTTPS 上报；独立 HMAC、时间戳与 nonce 校验，不公开 NAS 端口。
 - 多设备监控与数据卷明细，异常保留旧数据并标注时间，隐藏页面暂停请求。
-- 工具箱、Agent、抠图与文件转换预留页面；Codex Web 外链由环境变量配置。
+- 浏览器本地图片工具：边缘连通白底移除、整图去白、擦除/还原/取色画笔、原图对比、缩放移动与透明 PNG 导出；仅静态 PNG/JPEG/WebP，不是 AI 主体识别。
+- 浏览器本地 GIF 工具：逐帧去白、逐帧画笔/撤销、播放预览与透明 GIF 导出，保留帧延时和循环信息。
+- 图片最大 10 MB/3200 万原始像素；GIF 最大 8 MB、60 帧、15 秒/3200 万逻辑像素，导出最大 480px 长边/20 MB。文件仅在浏览器本地处理，不上传服务器。
+- Agent、智能抠图、视频处理与文件转换保持清晰标注的待开放入口；Codex Web 外链由环境变量配置。
 
 ## 运行条件
 
@@ -88,14 +91,13 @@ NAS 断网会重试，超过云端的过期阈值会在页面显示过期/离线
 ## 目录与扩展
 
 ```text
-server/auth/              登录、密码、会话、Cookie 与限流
-server/providers/         本机、NAS 与开发模拟数据
-server/modules/catalog.js 模块清单与受保护路径
-public/assets/components/ 导航、指标、轮询、主题与公共组件
-public/assets/pages/      首页与各模块页面
-scripts/                  凭据生成与 NAS 采集
-deploy/                   服务、代理与环境变量模板
-tests/                    认证、监控与主题测试
+server/auth/                    登录、密码、会话、Cookie 与限流
+server/providers/               本机、NAS 与开发模拟数据
+server/modules/catalog.js      模块清单与受保护路径
+public/assets/components/      导航、主题、图像处理 Worker 与通用组件
+public/assets/components/image-tools/ 像素算法、画笔与 GIF 编解码
+public/assets/pages/            仪表盘、工具箱与编辑页面
+tests/                          认证、监控、图片算法与 GIF 回归测试
 ```
 
 新占位工具只需在 `catalog.js` 注册；完整页面加入 `pages/` 并在 `app.js` 注册。写 API 继续保留会话、同源和 CSRF 校验，上传文件另设类型及体积边界。前端升级时增加 HTML 和 ES module 的资源版本参数。

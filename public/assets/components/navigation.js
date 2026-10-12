@@ -1,5 +1,5 @@
-import { element, internalLink, externalLink, safeExternalHref, safeInternalPath } from './dom.js?v=1.3.0';
-import { icon } from './icons.js?v=1.3.0';
+import { element, internalLink, externalLink, safeExternalHref, safeInternalPath } from './dom.js?v=1.4.0';
+import { icon } from './icons.js?v=1.4.0';
 
 export function createNavigation({ modules, username, onLogout, onAppearance }) {
   const brand = internalLink('/', '', 'brand navbar-brand');

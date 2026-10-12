@@ -6,11 +6,20 @@ export function getModules(config) {
     {
       id: 'remove-background',
       path: '/tools/remove-background',
-      title: '抠图',
+      title: '图片去白底',
       nav: false,
-      status: 'planned',
+      status: 'ready',
       group: 'tools',
-      description: '上传图片并移除背景的预留工具入口。',
+      description: '本地移除图片白色背景，手动修整并导出透明 PNG。',
+    },
+    {
+      id: 'gif-editor',
+      path: '/tools/gif-editor',
+      title: 'GIF 逐帧编辑',
+      nav: false,
+      status: 'ready',
+      group: 'tools',
+      description: '逐帧去除白底、局部修整并导出透明 GIF。',
     },
     {
       id: 'file-converter',
@@ -19,7 +28,7 @@ export function getModules(config) {
       nav: false,
       status: 'planned',
       group: 'tools',
-      description: '常见文档与图片格式转换的预留工具入口。',
+      description: '常见文件格式转换预留入口。',
     },
     {
       id: 'codex-web',

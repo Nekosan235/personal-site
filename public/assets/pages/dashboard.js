@@ -1,9 +1,9 @@
-import { apiRequest } from '../components/api.js?v=1.3.0';
-import { element, pageHeading, internalLink, externalLink, safeExternalHref } from '../components/dom.js?v=1.3.0';
-import { createMetricPanel, readMetric } from '../components/metric.js?v=1.3.0';
-import { createPoller } from '../components/poller.js?v=1.3.0';
-import { createWelcomeRotation } from '../components/welcome.js?v=1.3.0';
-import { icon } from '../components/icons.js?v=1.3.0';
+import { apiRequest } from '../components/api.js?v=1.4.0';
+import { element, pageHeading, internalLink, externalLink, safeExternalHref } from '../components/dom.js?v=1.4.0';
+import { createMetricPanel, readMetric } from '../components/metric.js?v=1.4.0';
+import { createPoller } from '../components/poller.js?v=1.4.0';
+import { createWelcomeRotation } from '../components/welcome.js?v=1.4.0';
+import { icon } from '../components/icons.js?v=1.4.0';
 
 const intervalMs = 5000;
 const timeFormat = new Intl.DateTimeFormat('zh-CN', {

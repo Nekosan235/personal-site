@@ -1,5 +1,5 @@
-import { element } from './dom.js?v=1.3.0';
-import { referenceCities } from './solar.js?v=1.3.0';
+import { element } from './dom.js?v=1.4.0';
+import { referenceCities } from './solar.js?v=1.4.0';
 
 const modes = [
   ['light', '浅色', '清晰、轻盈'],

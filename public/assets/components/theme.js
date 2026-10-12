@@ -1,4 +1,4 @@
-import { detectedTimeZone, referenceCities, resolveLocation, solarTimes, solarIsDay } from './solar.js?v=1.3.0';
+import { detectedTimeZone, referenceCities, resolveLocation, solarTimes, solarIsDay } from './solar.js?v=1.4.0';
 
 export const appearanceKey = 'personal-space.appearance.v1';
 export const themeModes = ['light', 'dark', 'system', 'solar'];

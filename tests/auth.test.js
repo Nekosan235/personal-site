@@ -119,7 +119,7 @@ async function fixture(t, overrides = {}) {
 test('anonymous visitors get only login UI and no protected pages, code or data', async t => {
   const f = await fixture(t);
   const c = f.client();
-  for (const path of ['/', '/tools', '/agents', '/tools/remove-background', '/tools/file-converter']) {
+  for (const path of ['/', '/tools', '/agents', '/tools/remove-background', '/tools/gif-editor', '/tools/file-converter']) {
     const response = await c.request(path);
     assert.equal(response.status, 303, path);
     assert.equal(response.headers.get('location'), '/login');
@@ -202,7 +202,8 @@ test('valid login uses safe cookie flags and grants access to registered modules
   for (const item of modules.filter(item => item.path)) {
     assert.equal((await c.request(item.path)).status, 200, item.id);
   }
-  assert.ok(modules.some(item => item.id === 'remove-background' && item.status === 'planned'));
+  assert.ok(modules.some(item => item.id === 'remove-background' && item.status === 'ready'));
+  assert.ok(modules.some(item => item.id === 'gif-editor' && item.status === 'ready'));
   assert.ok(modules.some(item => item.id === 'file-converter' && item.status === 'planned'));
   assert.equal(modules.find(item => item.id === 'codex-web').href, 'https://203.0.113.10:8443');
 });

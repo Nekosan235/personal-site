@@ -1,5 +1,5 @@
-import { createThemeController } from './components/theme.js?v=1.3.0';
-import { createAppearanceSettings } from './components/appearance.js?v=1.3.0';
+import { createThemeController } from './components/theme.js?v=1.4.0';
+import { createAppearanceSettings } from './components/appearance.js?v=1.4.0';
 
 const theme = createThemeController();
 const appearance = createAppearanceSettings(theme);

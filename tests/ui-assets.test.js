@@ -49,6 +49,7 @@ test('real login template exposes only self-hosted assets and retains CSRF and l
   assert.doesNotMatch(html, /<script(?![^>]*\bsrc=)/);
   assert.doesNotMatch(html, /(?:src|href)="https?:\/\//);
   assert.match(response.headers.get('content-security-policy'), /script-src 'self'; style-src 'self'/);
+  assert.match(response.headers.get('content-security-policy'), /worker-src 'self'/);
   assert.doesNotMatch(response.headers.get('content-security-policy'), /unsafe-inline|unsafe-eval/);
   for (const [, path] of html.matchAll(/(?:src|href)="(\/assets\/[^"?#]+)(?:\?[^"#]*)?"/g)) {
     assert.equal((await app.request(path)).status, 200, path);
@@ -95,6 +96,36 @@ test('real login works, protected shell loads Tabler, and logout remains CSRF pr
   assert.equal((await app.request('/api/session', { headers: { Cookie: sessionCookie } })).status, 401);
 });
 
+test('migrated image tools are registered as authenticated pages and keep their worker private', async (t) => {
+  const app = await fixture(t);
+  for (const path of ['/tools/remove-background', '/tools/gif-editor']) {
+    const response = await app.request(path);
+    assert.equal(response.status, 303, path);
+    assert.equal(response.headers.get('location'), '/login');
+  }
+  for (const path of ['/assets/components/image-tools/worker.js', '/assets/pages/gif-editor.js', '/api/image/upload']) {
+    assert.notEqual((await app.request(path)).status, 200, path);
+  }
+  const challenge = await app.request('/login');
+  const html = await challenge.text();
+  const csrf = html.match(/name="csrf-token" content="([^"]+)"/)[1];
+  const prelogin = challenge.headers.getSetCookie().map((value) => value.split(';')[0]).join('; ');
+  const login = await app.request('/api/auth/login', {
+    method: 'POST', headers: { Origin: origin, Cookie: prelogin, 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },
+    body: JSON.stringify({ username: 'ui-test-user', password }),
+  });
+  const cookie = login.headers.getSetCookie().filter((value) => !/Max-Age=0/.test(value)).map((value) => value.split(';')[0]).join('; ');
+  const catalog = await (await app.request('/api/modules', { headers: { Cookie: cookie } })).json();
+  for (const id of ['remove-background', 'gif-editor']) {
+    const module = catalog.modules.find((item) => item.id === id);
+    assert.equal(module.status, 'ready');
+    assert.equal(module.group, 'tools');
+  }
+  for (const path of ['/assets/pages/remove-background.js', '/assets/pages/gif-editor.js',
+    '/assets/components/image-tools/worker.js', '/assets/components/image-tools/gif-project.js']) {
+    assert.equal((await app.request(path, { headers: { Cookie: cookie } })).status, 200, path);
+  }
+});
 test('pre-paint bootstrap sets both native and Tabler theme attributes', async () => {
   const script = await readFile(join(publicDir, 'assets/theme-bootstrap.js'), 'utf8');
   for (const mode of ['light', 'dark']) {

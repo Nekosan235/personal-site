@@ -15,7 +15,7 @@ const paths = {
     'M6 3H3v3M18 3h3v3M3 18v3h3M21 18v3h-3',
     'M16 10a4 4 0 1 1-8 0 4 4 0 0 1 8 0ZM5 20a7 7 0 0 1 14 0',
   ],
-  'file-converter': ['M8 3h8l4 4v10H8V3ZM16 3v5h4', 'M4 7v14h12', 'M11 12h6M14 9l3 3-3 3'],
+  'gif-editor': ['M3 5h18v14H3zM7 9h3M7 12h3M7 15h3M14 9l4 3-4 3z'],
   agents: ['M9 5h6M12 2v3M5 8h14v12H5V8ZM2 12h3M19 12h3M8 20v2M16 20v2', 'M9 12h.01M15 12h.01M9 16h6'],
   unavailable: ['M12 3v7M12 14v.01', 'M20 21H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h16a1 1 0 0 1 1 1v16a1 1 0 0 1-1 1Z'],
 };

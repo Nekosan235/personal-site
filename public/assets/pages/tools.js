@@ -1,9 +1,9 @@
-import { element, pageHeading, internalLink, externalLink, statusBadge, safeExternalHref, safeInternalPath } from '../components/dom.js?v=1.3.0';
-import { icon } from '../components/icons.js?v=1.3.0';
+import { element, pageHeading, internalLink, externalLink, statusBadge, safeExternalHref, safeInternalPath } from '../components/dom.js?v=1.4.0';
+import { icon } from '../components/icons.js?v=1.4.0';
 
 export function renderTools({ modules }) {
   const page = element('div', { className: 'tools-page page-enter' }, [
-    pageHeading('工具箱', '查看工具介绍与开放状态。当前工具均在规划中。'),
+    pageHeading('工具箱', '本地图片与动画工具，素材只在你的浏览器中处理。'),
   ]);
   const tools = modules.filter((module) => module.group === 'tools' && safeInternalPath(module.path));
   const grid = element('div', { className: 'tool-grid' });
