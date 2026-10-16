@@ -342,6 +342,49 @@ button, a, input, select { -webkit-tap-highlight-color: transparent; }
   .editor-controls-body > .editor-privacy-note, .editor-controls-body > .editor-status, .editor-controls-body > .editor-progress, .editor-controls-body > .btn { grid-column: 1 / -1; }
   .editor-controls-body > .editor-control-group + .editor-control-group { padding-top: 0; border-top: 0; }
 }
+/* Engineer portfolio wall. Static cards only; no motion beyond the existing loading indicator. */
+.work-home { margin-bottom: 28px; }
+.work-home-head, .work-card-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.work-home-head { align-items: flex-end; margin-bottom: 14px; }
+.work-home-title, .work-section-title { margin: 0; font-size: 16px; font-weight: 650; line-height: 1.4; }
+.work-section-title { margin: 4px 0 12px; }
+.work-tagline, .work-intro, .work-summary, .work-kicker { color: var(--secondary); }
+.work-tagline, .work-intro { margin: 4px 0 0; font-size: 13px; line-height: 1.7; }
+.work-intro { margin: -10px 0 22px; }
+.work-kicker { font-size: 12px; }
+.work-grid, .award-gallery, .work-figures { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.work-grid { margin-bottom: 22px; }
+.work-card { min-width: 0; color: var(--ink); text-decoration: none; }
+.work-card .card-body, .award-gallery .card-body { padding: 18px 20px 16px; }
+.work-card .card-title, .award-gallery .card-title { margin: 10px 0 6px; font-size: 16px; font-weight: 650; line-height: 1.45; }
+.work-summary { margin: 0; font-size: 13px; line-height: 1.7; }
+.work-badge { flex: none; max-width: 12em; font-weight: 650; white-space: normal; text-align: right; }
+.work-card:hover { border-color: var(--blue); }
+.work-meta { display: flex; flex-wrap: wrap; gap: 8px 18px; margin: 0 0 22px; }
+.work-meta div { min-width: 8em; }
+.work-meta dt { margin: 0; color: var(--secondary); font-size: 11px; font-weight: 400; }
+.work-meta dd { margin: 2px 0 0; font-size: 13px; line-height: 1.6; }
+.work-block { margin-bottom: 22px; }
+.work-block h2, .model-slot h2 { margin: 0 0 8px; font-size: 14px; font-weight: 650; }
+.work-block > p, .work-list { margin: 0; font-size: 14px; line-height: 1.75; }
+.work-list { padding-left: 1.2em; }
+.work-list li + li { margin-top: 4px; }
+.work-block > p.work-note { margin-top: 8px; color: var(--secondary); font-size: 12px; }
+.work-more { margin: 0; }
+.award-figure { margin: 0; }
+.award-figure img { display: block; width: 100%; height: auto; max-height: 520px; object-fit: contain; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; }
+.award-figure figcaption { margin-top: 8px; color: var(--secondary); font-size: 12px; line-height: 1.7; }
+.award-open { margin-top: 4px; }
+.work-figures:has(figure:only-child) { grid-template-columns: minmax(0, 720px); }
+.model-slot { margin-top: 4px; padding: 14px 16px; color: var(--secondary); border: 1px dashed var(--line); border-radius: 8px; }
+.model-slot p { margin: 0; font-size: 12px; line-height: 1.7; }
+@media (max-width: 575.98px) {
+  .work-grid, .award-gallery, .work-figures, .work-figures:has(figure:only-child) { grid-template-columns: 1fr; }
+  .work-home-head { align-items: stretch; flex-direction: column; }
+  .work-home-head .btn { width: 100%; }
+  .work-badge { max-width: 9em; }
+}
+
 @media (max-width: 575.98px) {
   .editor-layout { gap: 14px; }
   .editor-card-header { align-items: flex-start; padding: 14px; }

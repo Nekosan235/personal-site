@@ -1,9 +1,9 @@
 {
   "name": "personal-site",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "private": true,
   "type": "module",
-  "description": "轻量个人工具箱与实时服务器监控",
+  "description": "轻量个人工具箱、作品墙与实时服务器监控",
   "engines": {
     "node": ">=24.14.0 <25"
   },

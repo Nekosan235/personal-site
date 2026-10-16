@@ -28,7 +28,7 @@ const PUBLIC_ASSETS = new Set([
   '/assets/components/solar.js',
   '/assets/components/theme.js',
 ]);
-const PROTECTED_ASSET_PREFIXES = ['/assets/components/', '/assets/pages/'];
+const PROTECTED_ASSET_PREFIXES = ['/assets/components/', '/assets/pages/', '/assets/portfolio/'];
 const PROTECTED_ASSETS = new Set(['/assets/app.js']);
 
 const MIME_TYPES = new Map([

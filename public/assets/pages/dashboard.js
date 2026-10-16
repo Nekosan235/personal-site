@@ -4,6 +4,7 @@ import { createMetricPanel, readMetric } from '../components/metric.js?v=1.4.0';
 import { createPoller } from '../components/poller.js?v=1.4.0';
 import { createWelcomeRotation } from '../components/welcome.js?v=1.4.0';
 import { icon } from '../components/icons.js?v=1.4.0';
+import { renderHomeProjects } from '../components/portfolio-view.js?v=1.5.0';
 
 const intervalMs = 5000;
 const timeFormat = new Intl.DateTimeFormat('zh-CN', {
@@ -239,7 +240,7 @@ export function createDashboardView({ modules, now = Date.now }) {
   const heading = pageHeading('欢迎回来', '你的设备与常用工具，都在这里。', badge);
   const title = heading.children[0].children[0];
   const list = element('div', { className: 'device-list', attributes: { 'aria-label': '设备监控' } });
-  const page = element('div', { className: 'dashboard-page page-enter' }, [heading, notice, list]);
+  const page = element('div', { className: 'dashboard-page page-enter' }, [heading, renderHomeProjects(), notice, list]);
   const links = [internalLink('/tools', '查看工具箱', 'btn btn-outline-primary')];
   const codex = modules.find((module) => module.id === 'codex-web');
   const href = codex && safeExternalHref(codex.href);

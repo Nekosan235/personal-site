@@ -1,6 +1,15 @@
 export function getModules(config) {
   return [
     { id: 'dashboard', path: '/', title: '概览', nav: false, status: 'ready' },
+    { id: 'work', path: '/work', title: '作品', nav: true, status: 'ready' },
+    { id: 'work-honors', path: '/work/honors', title: '荣誉', nav: false, status: 'ready', group: 'work' },
+    { id: 'forest-drone', path: '/work/forest-drone', title: '无人机森林消防系统', nav: false, status: 'ready', group: 'work' },
+    { id: 'hydrogen', path: '/work/hydrogen', title: '风光制氢自动化控制系统', nav: false, status: 'ready', group: 'work' },
+    { id: 'servo-screw', path: '/work/servo-screw', title: 'S7-1200 + V90 伺服丝杆传动', nav: false, status: 'ready', group: 'work' },
+    { id: 'inovance-vision', path: '/work/inovance-vision', title: '汇川杯工业视觉', nav: false, status: 'ready', group: 'work' },
+    { id: 'mcu-music', path: '/work/mcu-music', title: '51单片机音乐播放器', nav: false, status: 'ready', group: 'work' },
+    { id: 'advantech-elevator', path: '/work/advantech-elevator', title: '基于 AIoT 的电梯智能监测系统', nav: false, status: 'ready', group: 'work' },
+    { id: 'ican-elevator', path: '/work/ican-elevator', title: '基于 AI 的非接触式电梯控制系统', nav: false, status: 'ready', group: 'work' },
     { id: 'tools', path: '/tools', title: '工具箱', nav: true, status: 'ready' },
     { id: 'agents', path: '/agents', title: '我的 Agent', nav: true, status: 'planned' },
     {

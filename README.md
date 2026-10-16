@@ -1,12 +1,13 @@
 # 个人空间
 
-一个轻量、自托管的个人工具箱：原生 Node.js 后端、HTML/CSS/ES modules 前端。界面使用本地托管的 [Tabler 1.6.1](https://github.com/tabler/tabler)（MIT）UI kit，提供侧边导航、设备监控卡片、响应式工具页面和日夜主题。保留原有认证与监控接口，运行时仍无需 npm 依赖或前端构建。
+一个轻量、自托管的个人工具箱：原生 Node.js 后端、HTML/CSS/ES modules 前端。界面使用本地托管的 [Tabler 1.6.1](https://github.com/tabler/tabler)（MIT）UI kit，提供侧边导航、作品墙、设备监控卡片、响应式工具页面和日夜主题。保留原有认证与监控接口，运行时仍无需 npm 依赖或前端构建。
 
 Tabler 样式位于 `public/assets/vendor/tabler/tabler.min.css`，上游许可及 Bootstrap 许可保存在同目录的 `LICENSE`。图片/GIF 处理复用 [wechat-toolbox](https://github.com/Nekosan235/wechat-toolbox) 中独立的像素算法与 GIF 编解码逻辑，来源许可位于 `public/assets/components/image-tools/LICENSE`。文件只在浏览器中读取并通过 ES module Worker 处理，没有文件上传 API、外部 CDN、第三方运行时依赖或构建步骤。外观控制器同时维护 `data-theme` 与 Tabler 的 `data-bs-theme`。
 
 ## 功能
 
 - 单用户密码登录，后端保护页面、脚本和 API；SQLite 持久会话、scrypt 密码哈希、CSRF 与登录限流。
+- 作品墙：概览页 4 张主要项目卡片，另有项目页、其他练习和荣誉奖状。奖状在登录后显示。项目页留有设备三维查看位，当前不加载模型。
 - 首页先显示“欢迎回来”，停留一段时间后轮换原创短句。
 - 浅色、深色、跟随系统及日出日落主题；自动识别本机时区，使用明确标注的参考城市计算日出日落，可手动覆盖。
 - Linux 云服务器每 5 秒真实采样 CPU、内存、根分区容量与运行时长，保留最近 60 个样本。
@@ -96,7 +97,9 @@ server/providers/               本机、NAS 与开发模拟数据
 server/modules/catalog.js      模块清单与受保护路径
 public/assets/components/      导航、主题、图像处理 Worker 与通用组件
 public/assets/components/image-tools/ 像素算法、画笔与 GIF 编解码
-public/assets/pages/            仪表盘、工具箱与编辑页面
+public/assets/pages/            仪表盘、作品墙、工具箱与编辑页面
+public/assets/components/portfolio-data.js  作品与奖项文案
+public/assets/portfolio/         奖状与占位图，仅登录后可访问
 tests/                          认证、监控、图片算法与 GIF 回归测试
 ```
 
