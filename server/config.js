@@ -20,6 +20,47 @@ function pick(overrides, env, lower, upper, fallback) {
   return overrides[lower] ?? overrides[upper] ?? env[upper] ?? fallback;
 }
 
+function textValue(overrides, env, lower, upper) {
+  const value = overrides[lower] ?? overrides[upper] ?? env[upper];
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+const REMOTE_CLOUD_SLOTS = 8;
+
+function loadRemoteDevices(overrides, env, nas) {
+  if (Array.isArray(overrides.remoteDevices) && overrides.remoteDevices.length > 0) {
+    return overrides.remoteDevices;
+  }
+  const sharedSecret = textValue(overrides, env, 'remoteCloudMonitorSecret', 'REMOTE_CLOUD_MONITOR_SECRET');
+  const devices = [{
+    id: nas.id,
+    type: 'nas',
+    name: nas.name,
+    region: null,
+    host: nas.host,
+    ip: null,
+    secret: nas.secret,
+  }];
+  for (let index = 1; index <= REMOTE_CLOUD_SLOTS; index += 1) {
+    const id = textValue(overrides, env, `remoteCloud${index}Id`, `REMOTE_CLOUD_${index}_ID`);
+    if (!id) continue;
+    const name = textValue(overrides, env, `remoteCloud${index}Name`, `REMOTE_CLOUD_${index}_NAME`);
+    const region = textValue(overrides, env, `remoteCloud${index}Region`, `REMOTE_CLOUD_${index}_REGION`);
+    const ip = textValue(overrides, env, `remoteCloud${index}Ip`, `REMOTE_CLOUD_${index}_IP`);
+    const secret = textValue(overrides, env, `remoteCloud${index}Secret`, `REMOTE_CLOUD_${index}_SECRET`) || sharedSecret;
+    devices.push({
+      id,
+      type: 'cloud',
+      name: name || id,
+      region: region || null,
+      host: ip || null,
+      ip: ip || null,
+      secret,
+    });
+  }
+  return devices;
+}
+
 export function loadConfig(env = process.env, overrides = {}) {
   const siteOrigin = pick(overrides, env, 'siteOrigin', 'SITE_ORIGIN', 'https://203.0.113.10');
   const nodeEnv = pick(overrides, env, 'nodeEnv', 'NODE_ENV', 'development');
@@ -99,6 +140,12 @@ export function loadConfig(env = process.env, overrides = {}) {
       10_000,
       10 * 60_000,
     ),
+    remoteDevices: loadRemoteDevices(overrides, env, {
+      id: pick(overrides, env, 'nasDeviceId', 'NAS_DEVICE_ID', 'fnos-nas'),
+      name: pick(overrides, env, 'nasDeviceName', 'NAS_DEVICE_NAME', 'fnOS NAS'),
+      host: pick(overrides, env, 'nasDeviceHost', 'NAS_DEVICE_HOST', 'nas.local:5666'),
+      secret: pick(overrides, env, 'nasMonitorSecret', 'NAS_MONITOR_SECRET', ''),
+    }),
   };
 }
 
@@ -118,6 +165,20 @@ export function validateRuntimeConfig(config) {
   }
   if (config.nasMonitorSecret && config.nasMonitorSecret.length < 32) {
     missing.push('NAS_MONITOR_SECRET must be at least 32 characters');
+  }
+  if (Array.isArray(config.remoteDevices)) {
+    const seen = new Set();
+    for (const device of config.remoteDevices) {
+      if (!device || typeof device.id !== 'string' || !/^[A-Za-z0-9_.:-]{1,64}$/.test(device.id)) {
+        missing.push('remote device id must match [A-Za-z0-9_.:-]{1,64}');
+        continue;
+      }
+      if (seen.has(device.id)) missing.push(`duplicate remote device id ${device.id}`);
+      seen.add(device.id);
+      if (device.type !== 'nas' && device.secret && device.secret.length < 32) {
+        missing.push(`REMOTE_CLOUD secret for ${device.id} must be at least 32 characters`);
+      }
+    }
   }
   if (missing.length > 0) {
     throw new Error(`Missing required production configuration: ${missing.join(', ')}`);

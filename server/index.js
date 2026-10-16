@@ -251,6 +251,38 @@ export function createApplication(options = {}) {
   const nasMonitorStore = options.nasMonitorStore ?? new NasMonitorStore(config, options.nasMonitoring);
   dashboardProvider?.start?.();
 
+  async function handleMonitorReport(req, res) {
+    let raw;
+    try {
+      raw = await readBody(req, config.nasMaxBodyBytes);
+    } catch (error) {
+      if (error.closeConnection) res.shouldKeepAlive = false;
+      return sendJson(
+        res,
+        error.statusCode ?? 400,
+        { error: 'bad request' },
+        error.closeConnection ? { Connection: 'close' } : {},
+      );
+    }
+    const verification = nasMonitorStore.verifyHeaders(req.headers, raw);
+    if (!verification.ok) {
+      return sendJson(res, verification.statusCode, { error: verification.error });
+    }
+    let report;
+    try {
+      report = JSON.parse(raw);
+    } catch {
+      return sendJson(res, 400, { error: 'bad request' });
+    }
+    let accepted;
+    try {
+      accepted = nasMonitorStore.acceptReport(report, verification.deviceId);
+    } catch (error) {
+      return sendJson(res, error.statusCode ?? 400, { error: error.code ?? 'bad report' });
+    }
+    return sendJson(res, 200, { ok: true, deviceId: accepted.deviceId, updatedAt: accepted.updatedAt });
+  }
+
   const server = createServer(async (req, res) => {
     try {
       const url = new URL(req.url ?? '/', 'http://internal');
@@ -272,36 +304,8 @@ export function createApplication(options = {}) {
         return await serveFile(res, publicDir, pathname);
       }
 
-      if (req.method === 'POST' && pathname === '/api/monitor/nas/report') {
-        let raw;
-        try {
-          raw = await readBody(req, config.nasMaxBodyBytes);
-        } catch (error) {
-          if (error.closeConnection) res.shouldKeepAlive = false;
-          return sendJson(
-            res,
-            error.statusCode ?? 400,
-            { error: 'bad request' },
-            error.closeConnection ? { Connection: 'close' } : {},
-          );
-        }
-        const verification = nasMonitorStore.verifyHeaders(req.headers, raw);
-        if (!verification.ok) {
-          return sendJson(res, verification.statusCode, { error: verification.error });
-        }
-        let report;
-        try {
-          report = JSON.parse(raw);
-        } catch {
-          return sendJson(res, 400, { error: 'bad request' });
-        }
-        let accepted;
-        try {
-          accepted = nasMonitorStore.acceptReport(report);
-        } catch (error) {
-          return sendJson(res, error.statusCode ?? 400, { error: error.code ?? 'bad report' });
-        }
-        return sendJson(res, 200, { ok: true, deviceId: accepted.deviceId, updatedAt: accepted.updatedAt });
+      if (req.method === 'POST' && (pathname === '/api/monitor/nas/report' || pathname === '/api/monitor/remote/report')) {
+        return await handleMonitorReport(req, res);
       }
 
       const session = getSession(req, store);
@@ -388,7 +392,7 @@ export function createApplication(options = {}) {
             : getDashboardMock(new Date(now()));
           dashboard.devices = [
             cloudDashboardDevice(dashboard, config),
-            nasMonitorStore.getDashboard(),
+            ...nasMonitorStore.getDashboards(),
           ];
           return sendJson(res, 200, dashboard);
         }
