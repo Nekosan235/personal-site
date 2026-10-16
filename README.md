@@ -9,8 +9,9 @@ Tabler 样式位于 `public/assets/vendor/tabler/tabler.min.css`，上游许可�
 - 单用户密码登录，后端保护页面、脚本和 API；SQLite 持久会话、scrypt 密码哈希、CSRF 与登录限流。
 - 首页先显示“欢迎回来”，停留一段时间后轮换原创短句。
 - 浅色、深色、跟随系统及日出日落主题；自动识别本机时区，使用明确标注的参考城市计算日出日落，可手动覆盖。
-- Linux 云服务器每 5 秒真实采样 CPU、内存、根分区容量与运行时长，保留最近 60 个样本。
+- Linux 云服务器每 5 秒真实采样 CPU、内存、根分区容量与运行时长，保留最近 60 个样本。跑网站的那台机器继续用本机采样。
 - NAS 用无依赖 Python 脚本每 15 秒主动通过 HTTPS 上报；独立 HMAC、时间戳与 nonce 校验，不公开 NAS 端口。
+- 其他 Linux 云主机用同一套 HMAC 上报 CPU、内存、根分区与运行时长。每台远程机器单独成卡，可与本机云主机和 NAS 同时显示。
 - 多设备监控与数据卷明细，异常保留旧数据并标注时间，隐藏页面暂停请求。
 - 浏览器本地图片工具：边缘连通白底移除、整图去白、擦除/还原/取色画笔、原图对比、缩放移动与透明 PNG 导出；仅静态 PNG/JPEG/WebP，不是 AI 主体识别。
 - 浏览器本地 GIF 工具：逐帧去白、逐帧画笔/撤销、播放预览与透明 GIF 导出，保留帧延时和循环信息。
@@ -19,7 +20,7 @@ Tabler 样式位于 `public/assets/vendor/tabler/tabler.min.css`，上游许可�
 
 ## 运行条件
 
-Node.js 24.14 或更新的 24.x；Linux 用于真实本机监控。内置 `node:sqlite` 在当前版本仍有实验性提示，升级前请跑测试。NAS 需要 Python 3.11+ 与可用的系统服务管理器。不需要 npm 安装依赖、构建、Docker、Prometheus 或 Grafana。
+Node.js 24.14 或更新的 24.x；Linux 用于真实本机监控。内置 `node:sqlite` 在当前版本仍有实验性提示，升级前请跑测试。NAS 和远程云主机需要 Python 3.11+ 与可用的系统服务管理器。不需要 npm 安装依赖、构建、Docker、Prometheus 或 Grafana。
 
 ```sh
 node --test tests/*.test.js
@@ -88,11 +89,48 @@ journalctl -u nas-monitor -n 30 --no-pager
 
 NAS 断网会重试，超过云端的过期阈值会在页面显示过期/离线。保持两端系统时间同步。网站服务重启后监控历史重新积累，NAS 下一次报告后恢复显示。
 
+## 远程云主机主动上报
+
+跑 personal-site 的阿里云主机继续用 `MONITORING_MODE=live` 和 `SERVER_*` 采样本机。华为云等远程 Linux 虚拟机不跑网站，只运行上报代理。云端按设备 ID 登记多台机器；NAS 仍是原来的单台设备，密钥和接口都不变。
+
+`deploy/site.env.example` 用编号环境变量登记远程云主机，空的 ID 会跳过该槽，最多 8 台。示例已经写好这两台，只含名称和地址，不含密钥：
+
+| 设备 ID | 名称 | 区域 | 公网 IP |
+| --- | --- | --- | --- |
+| `huawei-ap-southeast-1` | 华为云 · 东南亚 | 东南亚 · ap-southeast-1 | 183.87.149.115 |
+| `huawei-cn-east-3` | 华为云 · 华东 | 华东 · cn-east-3 | 1.94.16.40 |
+
+在阿里云的 `/etc/personal-site/site.env` 增加同样的 `REMOTE_CLOUD_*` 行。生成一把至少 32 字符的共享密钥，写入 `REMOTE_CLOUD_MONITOR_SECRET`。某一台要单独密钥时，再设置 `REMOTE_CLOUD_1_SECRET` 或 `REMOTE_CLOUD_2_SECRET`，该槽会覆盖共享密钥。上报节奏沿用 NAS 的 `NAS_REPORT_INTERVAL_MS`（默认 15 秒）、`NAS_STALE_AFTER_MS`（默认 60 秒）和 `NAS_MAX_CLOCK_SKEW_MS`（默认 120 秒）。
+
+```sh
+openssl rand -hex 32
+systemctl restart personal-site
+```
+
+网站的 `SITE_ORIGIN` 是 `https://47.117.181.103`。每台华为云虚拟机把指标 POST 到 `https://47.117.181.103/api/monitor/remote/report`。`/api/monitor/nas/report` 仍然接受同一套 HMAC，NAS 脚本不用改。请求头可用 `X-Monitor-Device-Id`、`X-Monitor-Timestamp`、`X-Monitor-Nonce`、`X-Monitor-Signature`，也可继续用原来的 `X-NAS-*`。签名串是 `deviceId.timestamp.nonce.sha256(body)`，HMAC-SHA256 的密钥是该设备的 secret。
+
+在每台华为云虚拟机上安装代理。脚本只读 `/proc` 和根分区，不上传业务文件。把 `scripts/cloud-monitor.py` 放到 `/opt/personal-site/cloud-monitor.py`，把 `deploy/cloud-monitor.env.example` 放到 `/etc/personal-site/cloud-monitor.env`，权限 600。两台机器的 `CLOUD_DEVICE_ID`、名称、区域和 IP 按上表分开填写，密钥与阿里云 `site.env` 中该设备的密钥一致。
+
+```sh
+useradd --system --user-group --home-dir /var/lib/personal-site --shell /usr/sbin/nologin personal-monitor
+install -d -m 755 /opt/personal-site
+install -m 644 scripts/cloud-monitor.py /opt/personal-site/cloud-monitor.py
+install -d -m 700 /etc/personal-site
+install -m 600 deploy/cloud-monitor.env.example /etc/personal-site/cloud-monitor.env
+install -m 644 deploy/cloud-monitor.service /etc/systemd/system/cloud-monitor.service
+systemctl daemon-reload
+systemctl enable --now cloud-monitor
+systemctl status cloud-monitor --no-pager
+journalctl -u cloud-monitor -n 30 --no-pager
+```
+
+需要 Python 3.11+。默认只统计根分区；`CLOUD_MONITOR_PATHS` 可附加其它挂载点，和根分区同一文件系统的路径会去掉。未收到上报时卡片显示等待，超过过期阈值显示离线并保留最后读数，与 NAS 相同。两端系统时间需要同步。网站进程重启后，下一次上报恢复该卡的历史。
+
 ## 目录与扩展
 
 ```text
 server/auth/                    登录、密码、会话、Cookie 与限流
-server/providers/               本机、NAS 与开发模拟数据
+server/providers/               本机、NAS、远程云主机与开发模拟数据
 server/modules/catalog.js      模块清单与受保护路径
 public/assets/components/      导航、主题、图像处理 Worker 与通用组件
 public/assets/components/image-tools/ 像素算法、画笔与 GIF 编解码
@@ -104,7 +142,7 @@ tests/                          认证、监控、图片算法与 GIF 回归测�
 
 ## 隐私与许可
 
-本仓库仅包含源码、测试和示例配置，没有作者的实际服务器地址、NAS 地址、登录凭据、运行数据库或部署记录。请把自己的环境配置与运行数据保留在 Git 外。
+本仓库包含源码、测试和示例配置。远程监控示例写明了站点 origin `https://47.117.181.103`，以及两台华为云的公网地址和显示名称，方便安装上报代理。仓库没有登录密码、监控密钥、NAS 密钥、运行数据库或部署记录。请把真实密钥留在 Git 外。
 
 界面参考 Apple 的布局和可访问性原则，未使用 Apple 标志或捆绑 SF 字体。原创短句未署名为他人名言。
 

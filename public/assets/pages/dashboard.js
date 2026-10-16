@@ -33,6 +33,7 @@ export function sampleTime(data) {
 }
 
 export function dashboardHealth(data, now = Date.now()) {
+  if (data?.server?.status === 'waiting' || data?.error?.code === 'waiting_for_report') return 'waiting';
   const sampledAt = sampleTime(data);
   if (!isRealData(data) || !sampledAt) return 'unavailable';
   if (data.stale || now - sampledAt.getTime() > staleAfter(data)) return 'stale';
@@ -130,6 +131,7 @@ function createDeviceView({ now, index }) {
     const copy = {
       connecting: ['实时监控', '连接中', '正在获取服务器数据…'],
       healthy: ['实时监控', '在线', '每 5 秒自动刷新；页面隐藏时暂停。'],
+      waiting: ['等待上报', '等待上报', '尚未收到这台设备的监控上报。'],
       partial: ['数据不完整', '待恢复', '部分数据暂不可用。缺失指标保留上次读数，正在等待恢复。'],
       stale: ['数据已过期', '待恢复', '采样数据已过期。当前保留最后读数，正在等待恢复。'],
       failed: ['连接中断', '连接中断', '监控连接已中断。当前保留最后读数，将自动重试。'],
@@ -137,13 +139,14 @@ function createDeviceView({ now, index }) {
       paused: ['已暂停刷新', '刷新已暂停', '页面不可见，已暂停刷新；返回后立即更新。'],
       mock: ['模拟数据', '示例状态', '当前环境展示示例数据，尚未启用实时监控。'],
     }[display];
+    const quiet = ['healthy', 'connecting', 'paused', 'mock', 'waiting'];
     setText(status, copy[1]);
     setText(notice, copy[2]);
     status.classList.toggle('is-online', display === 'healthy');
     status.classList.toggle('bg-green-lt', display === 'healthy');
-    status.classList.toggle('bg-yellow-lt', !['healthy', 'connecting', 'paused', 'mock'].includes(display));
-    status.classList.toggle('bg-secondary-lt', ['connecting', 'paused', 'mock'].includes(display));
-    notice.classList.toggle('is-warning', !['healthy', 'connecting', 'paused', 'mock'].includes(display));
+    status.classList.toggle('bg-yellow-lt', !quiet.includes(display));
+    status.classList.toggle('bg-secondary-lt', quiet.includes(display) && display !== 'healthy');
+    notice.classList.toggle('is-warning', !quiet.includes(display));
     setText(sampledAtLabel, display === 'mock' ? '示例更新 '
       : ['failed', 'stale', 'partial', 'paused'].includes(display) ? '最后有效采样 ' : '最后采样 ');
     setText(failureTime, firstFailure ? `异常始于 ${timeFormat.format(firstFailure)}` : '');
@@ -156,7 +159,7 @@ function createDeviceView({ now, index }) {
     const server = data?.server;
     health = nextHealth;
     lastData = data;
-    if (health === 'healthy' || health === 'mock') firstFailure = null;
+    if (health === 'healthy' || health === 'mock' || health === 'waiting') firstFailure = null;
     else if (!firstFailure) firstFailure = new Date(now());
     if (sampledAt && (readMetric(data.metrics?.memory) || readMetric(data.metrics?.disk)
       || volumeMetrics(data).some((volume) => readMetric(volume?.metrics || volume)))) {
@@ -253,12 +256,15 @@ export function createDashboardView({ modules, now = Date.now }) {
   function showSummary() {
     const health = [...devices.values()].map((view) => view.health);
     const all = (state) => health.every((value) => value === state);
-    const errors = health.filter((value) => !['healthy', 'connecting', 'paused', 'mock'].includes(value)).length;
+    const quiet = ['healthy', 'connecting', 'paused', 'mock', 'waiting'];
+    const errors = health.filter((value) => !quiet.includes(value)).length;
+    const waiting = health.filter((value) => value === 'waiting').length;
     const [label, message] = all('paused') ? ['已暂停刷新', '页面不可见，已暂停刷新；返回后立即更新。']
       : all('mock') ? ['模拟数据', '当前环境展示示例数据，尚未启用实时监控。']
         : all('connecting') ? ['实时监控', '正在获取设备数据…']
           : errors ? ['设备待恢复', `${errors} 台设备的数据暂不可用或不完整，正在等待恢复。`]
-            : ['实时监控', `${devices.size} 台设备 · 每 5 秒自动刷新；页面隐藏时暂停。`];
+            : waiting ? ['等待上报', `${waiting} 台设备尚未收到监控上报。`]
+              : ['实时监控', `${devices.size} 台设备 · 每 5 秒自动刷新；页面隐藏时暂停。`];
     setText(badge, label);
     setText(notice, message);
     badge.classList.toggle('monitor-warning', errors > 0);

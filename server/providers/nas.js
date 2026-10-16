@@ -74,10 +74,18 @@ function normalizeMetric(value) {
   };
 }
 
-function headerValue(headers, name) {
-  const value = headers[name];
-  return typeof value === 'string' ? value : null;
+function headerValue(headers, names) {
+  for (const name of names) {
+    const value = headers[name];
+    if (typeof value === 'string' && value.length > 0) return value;
+  }
+  return null;
 }
+
+const DEVICE_ID_HEADERS = ['x-monitor-device-id', 'x-nas-device-id'];
+const TIMESTAMP_HEADERS = ['x-monitor-timestamp', 'x-nas-timestamp'];
+const NONCE_HEADERS = ['x-monitor-nonce', 'x-nas-nonce'];
+const SIGNATURE_HEADERS = ['x-monitor-signature', 'x-nas-signature'];
 
 function normalizeVolume(value) {
   if (!value || typeof value !== 'object') return null;
@@ -92,14 +100,17 @@ function normalizeVolume(value) {
   };
 }
 
-function sumDisk(volumes) {
+function sumDisk(volumes, type = 'nas') {
   if (!volumes.length) return {
     used: null,
     total: null,
     available: null,
     reserved: null,
     unit: 'GiB',
-    error: { code: 'no_volumes', message: 'NAS volume metrics are unavailable' },
+    error: {
+      code: 'no_volumes',
+      message: type === 'nas' ? 'NAS volume metrics are unavailable' : 'Disk metrics are unavailable',
+    },
   };
   const totals = volumes.reduce((acc, volume) => {
     acc.used += volume.used ?? 0;
@@ -118,19 +129,46 @@ function sumDisk(volumes) {
   };
 }
 
+function textOrNull(value) {
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
 export class NasMonitorStore {
   constructor(config, options = {}) {
     this.config = config;
     this.now = options.now ?? (() => Date.now());
     this.historyLimit = Math.min(60, Math.max(1, Number(config.monitoringHistoryLimit) || 60));
     this.nonces = new Map();
-    this.memoryHistory = [];
-    this.diskHistory = [];
-    this.lastReport = null;
     this.nonceLimit = options.nonceLimit ?? 2048;
+    this.devices = new Map();
+    this.deviceOrder = [];
+    const configured = Array.isArray(config.remoteDevices) && config.remoteDevices.length
+      ? config.remoteDevices
+      : [{
+        id: config.nasDeviceId,
+        type: 'nas',
+        name: config.nasDeviceName,
+        region: null,
+        host: config.nasDeviceHost,
+        ip: null,
+        secret: config.nasMonitorSecret,
+      }];
+    for (const device of configured) {
+      if (!device?.id || this.devices.has(device.id)) continue;
+      this.devices.set(device.id, {
+        meta: device,
+        memoryHistory: [],
+        diskHistory: [],
+        lastReport: null,
+      });
+      this.deviceOrder.push(device.id);
+    }
   }
 
   isEnabled() {
+    for (const state of this.devices.values()) {
+      if (state.meta.secret) return true;
+    }
     return Boolean(this.config.nasMonitorSecret);
   }
 
@@ -138,10 +176,10 @@ export class NasMonitorStore {
     if (!this.isEnabled()) {
       return { ok: false, statusCode: 404, error: 'nas_monitor_disabled' };
     }
-    const deviceId = headerValue(headers, 'x-nas-device-id');
-    const timestamp = headerValue(headers, 'x-nas-timestamp');
-    const nonce = headerValue(headers, 'x-nas-nonce');
-    const signature = headerValue(headers, 'x-nas-signature');
+    const deviceId = headerValue(headers, DEVICE_ID_HEADERS);
+    const timestamp = headerValue(headers, TIMESTAMP_HEADERS);
+    const nonce = headerValue(headers, NONCE_HEADERS);
+    const signature = headerValue(headers, SIGNATURE_HEADERS);
     if (!deviceId || !timestamp || !nonce || !signature) {
       return { ok: false, statusCode: 401, error: 'missing_signature_headers' };
     }
@@ -151,8 +189,16 @@ export class NasMonitorStore {
       || !/^sha256=[a-f0-9]{64}$/.test(signature)) {
       return { ok: false, statusCode: 401, error: 'malformed_signature_headers' };
     }
-    if (deviceId !== this.config.nasDeviceId) {
+    const state = this.devices.get(deviceId);
+    if (!state) {
       return { ok: false, statusCode: 403, error: 'unknown_device' };
+    }
+    if (!state.meta.secret) {
+      return {
+        ok: false,
+        statusCode: 404,
+        error: state.meta.type === 'nas' ? 'nas_monitor_disabled' : 'remote_monitor_disabled',
+      };
     }
     const timestampMs = Number(timestamp) * 1000;
     if (!Number.isFinite(timestampMs) || Math.abs(this.now() - timestampMs) > this.config.nasMaxClockSkewMs) {
@@ -167,7 +213,7 @@ export class NasMonitorStore {
       return { ok: false, statusCode: 429, error: 'nonce_store_full' };
     }
     const expected = createNasSignature({
-      secret: this.config.nasMonitorSecret,
+      secret: state.meta.secret,
       deviceId,
       timestamp,
       nonce,
@@ -177,19 +223,24 @@ export class NasMonitorStore {
       return { ok: false, statusCode: 401, error: 'bad_signature' };
     }
     this.nonces.set(nonceKey, timestampMs);
-    return { ok: true };
+    return { ok: true, deviceId };
   }
 
-  acceptReport(report) {
-    this.validateReport(report);
-    const normalized = this.normalizeReport(report);
-    this.lastReport = normalized;
-    this.pushHistory(normalized);
+  acceptReport(report, deviceId = this.config.nasDeviceId) {
+    const state = this.devices.get(deviceId);
+    if (!state) throw reportError('unknown_device', 403);
+    this.validateReport(report, deviceId);
+    const normalized = this.normalizeReport(report, state.meta);
+    state.lastReport = normalized;
+    this.pushHistory(state, normalized);
     return normalized;
   }
 
-  validateReport(report) {
+  validateReport(report, deviceId) {
     if (!report || typeof report !== 'object') throw reportError('invalid_report');
+    if (typeof report.deviceId === 'string' && report.deviceId !== deviceId) {
+      throw reportError('device_mismatch', 403);
+    }
     const sampledAtMs = Date.parse(report.sampledAt ?? '');
     if (!Number.isFinite(sampledAtMs)) throw reportError('missing_sampled_at');
     if (Math.abs(this.now() - sampledAtMs) > this.config.nasMaxClockSkewMs) {
@@ -197,7 +248,7 @@ export class NasMonitorStore {
     }
   }
 
-  normalizeReport(report) {
+  normalizeReport(report, meta) {
     const sampledAtMs = Date.parse(report?.sampledAt ?? '');
     const updatedAt = new Date(this.now()).toISOString();
     const volumes = [];
@@ -220,17 +271,26 @@ export class NasMonitorStore {
     const reportedDisk = normalizeMetric(report?.metrics?.disk);
     const disk = reportedDisk && (reportedDisk.used != null || reportedDisk.total != null)
       ? reportedDisk
-      : sumDisk(volumes);
+      : sumDisk(volumes, meta.type);
     const diskPartial = Boolean(report?.metrics?.disk?.partial || disk.partial || missingVolumes.length > 0);
-    const diskError = disk.error ?? (diskPartial ? { code: 'partial_volumes', message: 'Some NAS volume metrics are unavailable' } : null);
+    const partialMessage = meta.type === 'nas'
+      ? 'Some NAS volume metrics are unavailable'
+      : 'Some disk metrics are unavailable';
+    const diskError = disk.error ?? (diskPartial ? { code: 'partial_volumes', message: partialMessage } : null);
+    const memoryFallback = meta.type === 'nas'
+      ? 'NAS memory metrics are unavailable'
+      : 'Cloud memory metrics are unavailable';
+    const reportedName = textOrNull(report?.server?.name);
     return {
-      deviceId: this.config.nasDeviceId,
+      deviceId: meta.id,
       sampledAt: new Date(sampledAtMs).toISOString(),
       updatedAt,
       server: {
-        id: this.config.nasDeviceId,
-        name: typeof report?.server?.name === 'string' ? report.server.name : this.config.nasDeviceName,
-        host: this.config.nasDeviceHost,
+        id: meta.id,
+        name: meta.type === 'cloud' ? (meta.name || reportedName || meta.id) : (reportedName || meta.name),
+        host: meta.type === 'nas' ? meta.host : (meta.host || meta.ip || textOrNull(report?.server?.host)),
+        ip: meta.type === 'cloud' ? (meta.ip || textOrNull(report?.server?.ip)) : null,
+        region: meta.type === 'cloud' ? (meta.region || textOrNull(report?.server?.region)) : null,
         os: typeof report?.server?.os === 'string' ? report.server.os : null,
         vcpu: nullableNumber(report?.server?.vcpu),
         status: 'online',
@@ -244,7 +304,7 @@ export class NasMonitorStore {
           total: null,
           available: null,
           unit: 'GiB',
-          error: { code: 'memory_unavailable', message: 'NAS memory metrics are unavailable' },
+          error: { code: 'memory_unavailable', message: memoryFallback },
         },
         disk: {
           ...disk,
@@ -257,62 +317,84 @@ export class NasMonitorStore {
     };
   }
 
-  pushHistory(report) {
+  pushHistory(state, report) {
     if (report.metrics.memory.used != null && report.metrics.memory.error == null) {
-      this.memoryHistory.push(report.metrics.memory.used);
-      while (this.memoryHistory.length > this.historyLimit) this.memoryHistory.shift();
+      state.memoryHistory.push(report.metrics.memory.used);
+      while (state.memoryHistory.length > this.historyLimit) state.memoryHistory.shift();
     }
     if (report.metrics.disk.used != null && report.metrics.disk.error == null) {
-      this.diskHistory.push(report.metrics.disk.used);
-      while (this.diskHistory.length > this.historyLimit) this.diskHistory.shift();
+      state.diskHistory.push(report.metrics.disk.used);
+      while (state.diskHistory.length > this.historyLimit) state.diskHistory.shift();
     }
   }
 
   getDashboard() {
-    if (!this.lastReport) return this.waitingDashboard();
-    const ageMs = this.now() - Date.parse(this.lastReport.updatedAt);
+    return this.dashboardFor(this.devices.get(this.config.nasDeviceId) ?? this.devices.get(this.deviceOrder[0]));
+  }
+
+  getDashboards() {
+    return this.deviceOrder.map((id) => this.dashboardFor(this.devices.get(id)));
+  }
+
+  dashboardFor(state) {
+    if (!state?.lastReport) return this.waitingDashboard(state?.meta);
+    const meta = state.meta;
+    const ageMs = this.now() - Date.parse(state.lastReport.updatedAt);
     const stale = ageMs > this.config.nasStaleAfterMs;
+    const staleMessage = meta.type === 'nas' ? 'NAS monitor data is stale' : 'Cloud monitor data is stale';
     return {
-      id: this.config.nasDeviceId,
-      name: this.lastReport.server.name,
-      type: 'nas',
+      id: meta.id,
+      name: state.lastReport.server.name,
+      type: meta.type === 'cloud' ? 'cloud' : 'nas',
       mode: 'push',
-      sampledAt: this.lastReport.sampledAt,
-      updatedAt: this.lastReport.updatedAt,
+      sampledAt: state.lastReport.sampledAt,
+      updatedAt: state.lastReport.updatedAt,
       refreshIntervalMs: this.config.nasReportIntervalMs,
       stale,
-      error: stale ? { code: 'stale_report', message: 'NAS monitor data is stale' } : null,
+      error: stale ? { code: 'stale_report', message: staleMessage } : null,
       server: {
-        ...this.lastReport.server,
+        ...state.lastReport.server,
         status: stale ? 'offline' : 'online',
       },
       metrics: {
-        memory: metricWithHistory(this.lastReport.metrics.memory, this.memoryHistory, 'memory used GiB'),
+        memory: metricWithHistory(state.lastReport.metrics.memory, state.memoryHistory, 'memory used GiB'),
         disk: {
-          ...metricWithHistory(this.lastReport.metrics.disk, this.diskHistory, 'disk used GiB'),
-          volumes: this.lastReport.metrics.disk.volumes,
-          partial: Boolean(this.lastReport.metrics.disk.partial),
-          missingVolumes: this.lastReport.metrics.disk.missingVolumes ?? [],
+          ...metricWithHistory(state.lastReport.metrics.disk, state.diskHistory, 'disk used GiB'),
+          volumes: state.lastReport.metrics.disk.volumes,
+          partial: Boolean(state.lastReport.metrics.disk.partial),
+          missingVolumes: state.lastReport.metrics.disk.missingVolumes ?? [],
         },
       },
     };
   }
 
-  waitingDashboard() {
-    return {
+  waitingDashboard(meta = null) {
+    const device = meta ?? {
       id: this.config.nasDeviceId,
-      name: this.config.nasDeviceName,
       type: 'nas',
+      name: this.config.nasDeviceName,
+      host: this.config.nasDeviceHost,
+      region: null,
+      ip: null,
+    };
+    const type = device.type === 'cloud' ? 'cloud' : 'nas';
+    const waitingMessage = type === 'nas' ? 'Waiting for NAS monitor report' : 'Waiting for cloud monitor report';
+    return {
+      id: device.id,
+      name: device.name,
+      type,
       mode: 'push',
       sampledAt: null,
       updatedAt: null,
       refreshIntervalMs: this.config.nasReportIntervalMs,
       stale: false,
-      error: { code: 'waiting_for_report', message: 'Waiting for NAS monitor report' },
+      error: { code: 'waiting_for_report', message: waitingMessage },
       server: {
-        id: this.config.nasDeviceId,
-        name: this.config.nasDeviceName,
-        host: this.config.nasDeviceHost,
+        id: device.id,
+        name: device.name,
+        host: device.host ?? device.ip ?? null,
+        ip: type === 'cloud' ? (device.ip ?? null) : null,
+        region: type === 'cloud' ? (device.region ?? null) : null,
         os: null,
         vcpu: null,
         status: 'waiting',
