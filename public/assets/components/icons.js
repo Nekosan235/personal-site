@@ -1,6 +1,7 @@
 const namespace = 'http://www.w3.org/2000/svg';
 const paths = {
   dashboard: ['M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h7v7h-7z'],
+  work: ['M6 3h9l4 4v14H6zM15 3v4h4M9 12h6M9 16h6'],
   tools: ['M4 7h16v13H4zM9 7V4h6v3M4 12h16M10 12v3h4v-3'],
   'codex-web': ['M8 7l-5 5 5 5M16 7l5 5-5 5M14 4l-4 16'],
   menu: ['M4 6h16M4 12h16M4 18h16'],
