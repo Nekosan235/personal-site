@@ -1,0 +1,18 @@
+{
+  "message": "获取数据成功！",
+  "data": {
+    "id": "7123456789012345679",
+    "desc": "图集标题",
+    "type": "图集",
+    "downloads": [
+      "https://p3-sign.douyinpic.com/a.jpeg",
+      "https://p9-sign.douyinpic.com/b.webp"
+    ],
+    "width": -1,
+    "height": -1,
+    "static_cover": "",
+    "nickname": "图集作者"
+  },
+  "params": { "detail_id": "7123456789012345679" },
+  "time": "2026-10-18 12:00:02"
+}

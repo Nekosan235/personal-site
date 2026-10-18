@@ -1,9 +1,19 @@
 export class ApiError extends Error {
-  constructor(status) {
-    super('Request failed');
+  constructor(status, message = 'Request failed') {
+    super(message);
     this.name = 'ApiError';
     this.status = status;
   }
+}
+
+async function readErrorMessage(response) {
+  try {
+    const payload = await response.json();
+    if (payload && typeof payload.error === 'string' && payload.error.trim()) return payload.error.trim();
+  } catch {
+    // Keep the generic message when the body is not JSON.
+  }
+  return 'Request failed';
 }
 
 export async function apiRequest(path, { method = 'GET', body, csrfToken, signal } = {}) {
@@ -21,7 +31,7 @@ export async function apiRequest(path, { method = 'GET', body, csrfToken, signal
     window.location.assign('/login');
     throw new ApiError(401);
   }
-  if (!response.ok) throw new ApiError(response.status);
+  if (!response.ok) throw new ApiError(response.status, await readErrorMessage(response));
   if (response.status === 204) return null;
   return response.json();
 }

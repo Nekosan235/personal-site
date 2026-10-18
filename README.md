@@ -18,7 +18,8 @@ Tabler 样式位于 `public/assets/vendor/tabler/tabler.min.css`，上游许可�
 - 浏览器本地 GIF 工具：逐帧去白、逐帧画笔/撤销、播放预览与透明 GIF 导出，保留帧延时和循环信息。
 - 图片最大 10 MB/3200 万原始像素；GIF 最大 8 MB、60 帧、15 秒/3200 万逻辑像素，导出最大 480px 长边/20 MB。文件仅在浏览器本地处理，不上传服务器。
 - 格式转换：浏览器本地处理图片、Markdown、JSON、YAML、CSV、Base64、URL 和文本，见下文。HEIC、PDF 与音视频保持不可用。
-- Agent、智能抠图与视频处理保持清晰标注的待开放入口；Codex Web 外链由环境变量配置。
+- 无水印下载：粘贴小红书或抖音分享文字，由本机解析服务取出图片或视频，再经站点代理保存。见下文。
+- Agent 与智能抠图保持清晰标注的待开放入口；Codex Web 外链由环境变量配置。
 
 ## 格式转换
 
@@ -31,6 +32,17 @@ Tabler 样式位于 `public/assets/vendor/tabler/tabler.min.css`，上游许可�
 - 未提供：HEIC、PDF、音频和视频。不引入原生解码库，也不调用 ffmpeg。
 
 文本和数据上限 1 MB。图片上限 10 MB、3200 万像素；GIF 导出不超过 419 万像素。SVG 上限 512 KB。
+
+## 无水印下载
+
+工具箱里的「无水印下载」面向手机浏览器。页面接受整段分享文字，抽出小红书或抖音链接后调用本机已经在跑的解析服务。服务只监听回环地址，由各自的进程部署，网站不负责启动它们。
+
+- 小红书使用 XHS-Downloader 的 `POST /xhs/detail`，请求体 `{url, download:false}`。开发分支的接口需要 `Authorization: Bearer`。令牌放在 `XHS_API_TOKEN`，或由 `XHS_API_TOKEN_FILE` 指向的文件提供（服务器上为 `/etc/media-dl/xhs-api.token`，属组 `personal-site`，权限 640）。空数据或「获取小红书作品数据失败」会提示换带 `xsec_token` 的完整分享链接。
+- 抖音使用 DouK-Downloader 的 `POST /douyin/share` 解开短链，再 `POST /douyin/detail`。默认不校验令牌。可选 `DOUYIN_COOKIE` 会放进 detail 的 `cookie` 字段。返回「获取数据失败！」时页面显示「抖音 Cookie 可能失效」。
+- 媒体文件只从允许的小红书、抖音 CDN 域名回源，并转发浏览器的 Range 请求。代理链接大约 15 分钟后失效。
+- 每天检查：`node --env-file=/etc/personal-site/site.env scripts/media-selfcheck.js`。小红书检查会带上 Bearer 令牌，任一端失败时退出码非 0。
+
+仅供保存自己或已获授权的内容。
 
 ## 运行条件
 
@@ -55,6 +67,11 @@ AUTH_USERNAME=your-user
 AUTH_PASSWORD_HASH=generated-scrypt-hash
 AUTH_SECRET=generated-random-secret
 CODEX_WEB_URL=https://your-codex.example
+XHS_API_URL=http://127.0.0.1:5556
+DOUYIN_API_URL=http://127.0.0.1:5555
+XHS_API_TOKEN=
+XHS_API_TOKEN_FILE=
+DOUYIN_COOKIE=
 ```
 
 ```sh
@@ -146,13 +163,14 @@ journalctl -u cloud-monitor -n 30 --no-pager
 server/auth/                    登录、密码、会话、Cookie 与限流
 server/providers/               本机、NAS、远程云主机与开发模拟数据
 server/modules/catalog.js      模块清单与受保护路径
+server/media/                   无水印下载：链接识别、后端调用与 CDN 代理
 public/assets/components/      导航、主题、图像处理 Worker 与通用组件
 public/assets/components/image-tools/ 像素算法、画笔与 GIF 编解码
 public/assets/components/format-convert/ 格式转换：图片识别与文本、数据、Markdown
 public/assets/pages/            仪表盘、作品墙、工具箱与编辑页面
 public/assets/components/portfolio-data.js  作品与奖项文案
 public/assets/portfolio/         奖状与占位图，仅登录后可访问
-tests/                          认证、监控、图片算法、GIF 与格式转换回归测试
+tests/                          认证、监控、图片算法、GIF、格式转换与无水印下载回归测试
 ```
 
 新占位工具只需在 `catalog.js` 注册；完整页面加入 `pages/` 并在 `app.js` 注册。写 API 继续保留会话、同源和 CSRF 校验，上传文件另设类型及体积边界。前端升级时增加 HTML 和 ES module 的资源版本参数。

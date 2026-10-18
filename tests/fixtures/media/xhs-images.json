@@ -1,0 +1,34 @@
+{
+  "message": "获取小红书作品数据成功",
+  "params": {
+    "url": "https://www.xiaohongshu.com/explore/640d6dca000000001203f0f9?xsec_token=ABCdef",
+    "download": false,
+    "index": null,
+    "cookie": null,
+    "proxy": null,
+    "skip": false
+  },
+  "data": {
+    "收藏数量": "1785",
+    "评论数量": "184",
+    "分享数量": "649",
+    "点赞数量": "5791",
+    "作品标签": "",
+    "作品ID": "640d6dca000000001203f0f9",
+    "作品链接": "https://www.xiaohongshu.com/explore/640d6dca000000001203f0f9",
+    "作品标题": "婚礼上的妈妈",
+    "作品描述": "示例描述",
+    "作品类型": "图文",
+    "发布时间": "2023-03-12_14:14:34",
+    "最后更新时间": "2023-03-12_14:43:40",
+    "作者昵称": "抱走阿茗",
+    "作者ID": "5d0ddb53000000001000c863",
+    "作者链接": "https://www.xiaohongshu.com/user/profile/5d0ddb53000000001000c863",
+    "下载地址": [
+      "https://ci.xiaohongshu.com/demo-a?imageView2/format/png",
+      "https://ci.xiaohongshu.com/demo-b?imageView2/format/webp"
+    ],
+    "动图地址": [null, "https://sns-video-bd.xhscdn.com/live-b.mp4"],
+    "封面地址": "https://sns-img-qc.xhscdn.com/cover.jpg"
+  }
+}
