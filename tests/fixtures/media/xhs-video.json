@@ -1,0 +1,17 @@
+{
+  "message": "获取小红书作品数据成功",
+  "params": { "url": "https://www.xiaohongshu.com/explore/video-id?xsec_token=ABCdef", "download": false },
+  "data": {
+    "作品ID": "video-id",
+    "作品标题": "示例视频",
+    "作品描述": "一段视频",
+    "作品类型": "视频",
+    "作者昵称": "示例作者",
+    "作者ID": "author-1",
+    "发布时间": "2024-01-01_12:00:00",
+    "下载地址": ["https://sns-video-bd.xhscdn.com/stream/example.mp4"],
+    "动图地址": [],
+    "封面地址": "https://sns-img-qc.xhscdn.com/cover.jpg",
+    "点赞数量": "10"
+  }
+}

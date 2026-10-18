@@ -1,0 +1,21 @@
+{
+  "message": "获取数据成功！",
+  "data": {
+    "id": "7123456789012345678",
+    "desc": "示例视频描述",
+    "type": "视频",
+    "create_time": "2024-01-01 00:00:00",
+    "downloads": "https://v26-web.douyinvod.com/video/example.mp4",
+    "duration": "00:00:12",
+    "width": 1080,
+    "height": 1920,
+    "static_cover": "https://p3-sign.douyinpic.com/cover.jpeg",
+    "dynamic_cover": "https://p3-sign.douyinpic.com/dynamic.webp",
+    "music_url": "https://sf3-cdn-tos.douyinstatic.com/music.mp3",
+    "nickname": "示例作者",
+    "uid": "123",
+    "sec_uid": "MS4w"
+  },
+  "params": { "detail_id": "7123456789012345678", "cookie": "session=1" },
+  "time": "2026-10-18 12:00:01"
+}

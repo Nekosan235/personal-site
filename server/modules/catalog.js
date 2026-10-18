@@ -40,6 +40,15 @@ export function getModules(config) {
       description: '在浏览器本地转换图片、Markdown、JSON、YAML、CSV、Base64 和文本。',
     },
     {
+      id: 'media-download',
+      path: '/tools/media-download',
+      title: '无水印下载',
+      nav: false,
+      status: 'ready',
+      group: 'tools',
+      description: '粘贴小红书或抖音分享，解析无水印图片和视频并保存到手机。',
+    },
+    {
       id: 'codex-web',
       href: config.codexWebUrl,
       title: 'Codex Web',

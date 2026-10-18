@@ -1,9 +1,9 @@
 import { element, pageHeading, internalLink, externalLink, statusBadge, safeExternalHref, safeInternalPath } from '../components/dom.js?v=1.4.0';
-import { icon } from '../components/icons.js?v=1.6.0';
+import { icon } from '../components/icons.js?v=1.7.0';
 
 export function renderTools({ modules }) {
   const page = element('div', { className: 'tools-page page-enter' }, [
-    pageHeading('工具箱', '本地处理图片、动画和常见格式。素材只在你的浏览器中处理。'),
+    pageHeading('工具箱', '图片、动画和格式转换在浏览器本地处理。无水印下载把分享链接交给本机解析服务。'),
   ]);
   const tools = modules.filter((module) => module.group === 'tools' && safeInternalPath(module.path));
   const grid = element('div', { className: 'tool-grid' });

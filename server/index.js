@@ -12,6 +12,7 @@ import { createPreloginToken, verifyPreloginToken } from './auth/prelogin.js';
 import { LoginRateLimiter } from './auth/rate-limit.js';
 import { SessionStore } from './auth/sessions.js';
 import { getModules } from './modules/catalog.js';
+import { createMediaHandler } from './media/handler.js';
 import { getDashboardMock } from './providers/mock.js';
 import { createLiveDashboardProvider } from './providers/live.js';
 import { NasMonitorStore, cloudDashboardDevice } from './providers/nas.js';
@@ -249,6 +250,15 @@ export function createApplication(options = {}) {
   const dashboardProvider = options.dashboardProvider
     ?? (config.monitoringMode === 'live' ? createLiveDashboardProvider(config, options.monitoring) : null);
   const nasMonitorStore = options.nasMonitorStore ?? new NasMonitorStore(config, options.nasMonitoring);
+  const media = createMediaHandler({
+    config,
+    fetchImpl: options.mediaFetch,
+    transport: options.mediaTransport,
+    parseLimiter: options.mediaRateLimiter,
+    healthLimiter: options.mediaHealthRateLimiter,
+    now,
+    securityHeaders,
+  });
   dashboardProvider?.start?.();
 
   async function handleMonitorReport(req, res) {
@@ -384,6 +394,11 @@ export function createApplication(options = {}) {
 
         if (req.method === 'GET' && pathname === '/api/modules') {
           return sendJson(res, 200, { modules: getModules(config) });
+        }
+
+        if (pathname.startsWith('/api/media/')) {
+          await media.handle(req, res, { pathname, url, session: apiSession, readJson });
+          return;
         }
 
         if (req.method === 'GET' && pathname === '/api/dashboard') {
