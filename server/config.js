@@ -25,6 +25,23 @@ function textValue(overrides, env, lower, upper) {
   return typeof value === 'string' ? value.trim() : '';
 }
 
+function configuredUrl(overrides, env, lower, upper, fallback) {
+  const value = pick(overrides, env, lower, upper, fallback);
+  const text = typeof value === 'string' ? value.trim() : '';
+  return text || fallback;
+}
+
+function isLoopbackHttpUrl(value) {
+  try {
+    const url = new URL(value);
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return false;
+    const host = url.hostname.replace(/^\[|\]$/g, '');
+    return host === '127.0.0.1' || host === 'localhost' || host === '::1';
+  } catch {
+    return false;
+  }
+}
+
 const REMOTE_CLOUD_SLOTS = 8;
 
 function loadRemoteDevices(overrides, env, nas) {
@@ -80,6 +97,30 @@ export function loadConfig(env = process.env, overrides = {}) {
     authPasswordHash: pick(overrides, env, 'authPasswordHash', 'AUTH_PASSWORD_HASH', ''),
     authSecret: pick(overrides, env, 'authSecret', 'AUTH_SECRET', ''),
     codexWebUrl: pick(overrides, env, 'codexWebUrl', 'CODEX_WEB_URL', 'https://203.0.113.10:8443'),
+    xhsApiUrl: configuredUrl(overrides, env, 'xhsApiUrl', 'XHS_API_URL', 'http://127.0.0.1:5556'),
+    douyinApiUrl: configuredUrl(overrides, env, 'douyinApiUrl', 'DOUYIN_API_URL', 'http://127.0.0.1:5555'),
+    xhsApiToken: textValue(overrides, env, 'xhsApiToken', 'XHS_API_TOKEN'),
+    xhsApiTokenFile: textValue(overrides, env, 'xhsApiTokenFile', 'XHS_API_TOKEN_FILE'),
+    douyinApiToken: textValue(overrides, env, 'douyinApiToken', 'DOUYIN_API_TOKEN'),
+    douyinCookie: textValue(overrides, env, 'douyinCookie', 'DOUYIN_COOKIE'),
+    mediaParseTimeoutMs: boundedNumber(
+      pick(overrides, env, 'mediaParseTimeoutMs', 'MEDIA_PARSE_TIMEOUT_MS', 25_000),
+      25_000,
+      3_000,
+      60_000,
+    ),
+    mediaProbeTimeoutMs: boundedNumber(
+      pick(overrides, env, 'mediaProbeTimeoutMs', 'MEDIA_PROBE_TIMEOUT_MS', 4_000),
+      4_000,
+      500,
+      15_000,
+    ),
+    mediaProxyTtlMs: boundedNumber(
+      pick(overrides, env, 'mediaProxyTtlMs', 'MEDIA_PROXY_TTL_MS', 15 * 60 * 1000),
+      15 * 60 * 1000,
+      60 * 1000,
+      60 * 60 * 1000,
+    ),
     nodeEnv,
     publicDir: resolve(pick(overrides, env, 'publicDir', 'PUBLIC_DIR', resolve(projectRoot, 'public'))),
     cookieSecure: boolFromEnv(
@@ -162,6 +203,12 @@ export function validateRuntimeConfig(config) {
   }
   if (config.monitoringMode != null && !['live', 'mock'].includes(config.monitoringMode)) {
     missing.push('MONITORING_MODE must be live or mock');
+  }
+  if (config.xhsApiUrl && !isLoopbackHttpUrl(config.xhsApiUrl)) {
+    missing.push('XHS_API_URL must be a loopback http(s) URL');
+  }
+  if (config.douyinApiUrl && !isLoopbackHttpUrl(config.douyinApiUrl)) {
+    missing.push('DOUYIN_API_URL must be a loopback http(s) URL');
   }
   if (config.nasMonitorSecret && config.nasMonitorSecret.length < 32) {
     missing.push('NAS_MONITOR_SECRET must be at least 32 characters');

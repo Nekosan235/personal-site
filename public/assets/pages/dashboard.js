@@ -1,4 +1,4 @@
-import { apiRequest } from '../components/api.js?v=1.4.0';
+import { apiRequest } from '../components/api.js?v=1.7.0';
 import { element, pageHeading, internalLink, externalLink, safeExternalHref } from '../components/dom.js?v=1.4.0';
 import { createMetricPanel, readMetric } from '../components/metric.js?v=1.4.0';
 import { createPoller } from '../components/poller.js?v=1.4.0';
