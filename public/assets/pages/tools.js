@@ -1,9 +1,9 @@
 import { element, pageHeading, internalLink, externalLink, statusBadge, safeExternalHref, safeInternalPath } from '../components/dom.js?v=1.4.0';
-import { icon } from '../components/icons.js?v=1.4.0';
+import { icon } from '../components/icons.js?v=1.6.0';
 
 export function renderTools({ modules }) {
   const page = element('div', { className: 'tools-page page-enter' }, [
-    pageHeading('工具箱', '本地图片与动画工具，素材只在你的浏览器中处理。'),
+    pageHeading('工具箱', '本地处理图片、动画和常见格式。素材只在你的浏览器中处理。'),
   ]);
   const tools = modules.filter((module) => module.group === 'tools' && safeInternalPath(module.path));
   const grid = element('div', { className: 'tool-grid' });
@@ -15,7 +15,7 @@ export function renderTools({ modules }) {
       ]),
       element('h2', { className: 'card-title', text: tool.title }),
       element('p', { className: 'tool-description text-secondary', text: tool.description || '查看这个工具的介绍与开放状态。' }),
-      element('span', { className: 'tool-action text-primary mt-auto', text: '查看介绍' }),
+      element('span', { className: 'tool-action text-primary mt-auto', text: tool.status === 'ready' ? '打开工具' : '查看介绍' }),
     ]));
     grid.append(link);
   }

@@ -17,7 +17,20 @@ Tabler 样式位于 `public/assets/vendor/tabler/tabler.min.css`，上游许可�
 - 浏览器本地图片工具：边缘连通白底移除、整图去白、擦除/还原/取色画笔、原图对比、缩放移动与透明 PNG 导出；仅静态 PNG/JPEG/WebP，不是 AI 主体识别。
 - 浏览器本地 GIF 工具：逐帧去白、逐帧画笔/撤销、播放预览与透明 GIF 导出，保留帧延时和循环信息。
 - 图片最大 10 MB/3200 万原始像素；GIF 最大 8 MB、60 帧、15 秒/3200 万逻辑像素，导出最大 480px 长边/20 MB。文件仅在浏览器本地处理，不上传服务器。
-- Agent、智能抠图、视频处理与文件转换保持清晰标注的待开放入口；Codex Web 外链由环境变量配置。
+- 格式转换：浏览器本地处理图片、Markdown、JSON、YAML、CSV、Base64、URL 和文本，见下文。HEIC、PDF 与音视频保持不可用。
+- Agent、智能抠图与视频处理保持清晰标注的待开放入口；Codex Web 外链由环境变量配置。
+
+## 格式转换
+
+工具箱里的「格式转换」在浏览器本地完成。转换逻辑是纯 JavaScript，由 Node 测试直接运行；页面不上传文件，不请求远程地址，也不执行系统命令。
+
+- 图片：PNG、JPG/JPEG、WebP、GIF 互转。GIF 只保留第一帧。安全的 SVG（没有脚本、外链或嵌入对象）可以转为 PNG 或其他位图。JPG 会把透明区域铺成白色。
+- 文档：Markdown 转为转义后的 HTML；TXT 和 Markdown 可以纯文本预览。
+- 数据：JSON 与块式 YAML 子集互转，CSV 与 JSON 互转，Base64 编解码，URL 编解码。YAML 使用空格缩进，不支持锚点、标签和多行文本块。CSV 第一行是表头，字段保持文本。
+- 文本：大小写、首尾空白、连续空格，以及 CRLF 与 LF。
+- 未提供：HEIC、PDF、音频和视频。不引入原生解码库，也不调用 ffmpeg。
+
+文本和数据上限 1 MB。图片上限 10 MB、3200 万像素；GIF 导出不超过 419 万像素。SVG 上限 512 KB。
 
 ## 运行条件
 
@@ -135,10 +148,11 @@ server/providers/               本机、NAS、远程云主机与开发模拟数
 server/modules/catalog.js      模块清单与受保护路径
 public/assets/components/      导航、主题、图像处理 Worker 与通用组件
 public/assets/components/image-tools/ 像素算法、画笔与 GIF 编解码
+public/assets/components/format-convert/ 格式转换：图片识别与文本、数据、Markdown
 public/assets/pages/            仪表盘、作品墙、工具箱与编辑页面
 public/assets/components/portfolio-data.js  作品与奖项文案
 public/assets/portfolio/         奖状与占位图，仅登录后可访问
-tests/                          认证、监控、图片算法与 GIF 回归测试
+tests/                          认证、监控、图片算法、GIF 与格式转换回归测试
 ```
 
 新占位工具只需在 `catalog.js` 注册；完整页面加入 `pages/` 并在 `app.js` 注册。写 API 继续保留会话、同源和 CSRF 校验，上传文件另设类型及体积边界。前端升级时增加 HTML 和 ES module 的资源版本参数。

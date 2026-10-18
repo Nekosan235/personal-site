@@ -398,3 +398,28 @@ button, a, input, select { -webkit-tap-highlight-color: transparent; }
   .editor-empty { padding-inline: 14px; }
   .editor-timeline { padding-inline: 12px; }
 }
+
+.converter-page { display: flex; flex-direction: column; gap: 18px; }
+.converter-nav { display: flex; flex-wrap: wrap; gap: 8px; }
+.converter-tab { min-height: 36px; }
+.converter-layout { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(260px, 360px); gap: 20px; align-items: start; }
+.converter-stage { min-height: 320px; height: min(52vh, 480px); margin: 0 18px; }
+.converter-preview-image { display: block; max-width: 100%; max-height: 100%; object-fit: contain; }
+.converter-text { min-height: 220px; resize: vertical; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; }
+.converter-preview { max-height: 280px; margin: 14px 0 0; padding: 12px; overflow: auto; white-space: pre-wrap; word-break: break-word; color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 8px; font-size: 12px; line-height: 1.6; }
+.converter-controls { display: flex; flex-direction: column; gap: 14px; }
+.converter-field { display: flex; flex-direction: column; gap: 8px; }
+.converter-field .form-label { margin: 0; font-size: 12px; }
+.converter-field .form-hint, .converter-controls .form-hint { margin: 0; color: var(--secondary); font-size: 12px; line-height: 1.6; }
+.converter-inline { display: flex; align-items: center; gap: 12px; }
+.converter-inline .form-range { flex: 1; }
+.converter-run, .converter-controls .btn { width: 100%; }
+.converter-unavailable-panel { display: flex; flex-direction: column; gap: 14px; }
+.converter-unavailable { display: grid; gap: 12px; }
+.converter-unavailable-head { display: flex; align-items: flex-start; gap: 10px; color: var(--secondary); font-size: 13px; line-height: 1.7; }
+.converter-unavailable-head p { margin: 0; }
+.converter-unavailable-head .icon { flex: none; width: 22px; height: 22px; margin-top: 2px; }
+@media (max-width: 799.98px) {
+  .converter-layout { grid-template-columns: 1fr; }
+  .converter-stage { height: 300px; }
+}

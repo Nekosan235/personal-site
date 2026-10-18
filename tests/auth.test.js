@@ -204,7 +204,7 @@ test('valid login uses safe cookie flags and grants access to registered modules
   }
   assert.ok(modules.some(item => item.id === 'remove-background' && item.status === 'ready'));
   assert.ok(modules.some(item => item.id === 'gif-editor' && item.status === 'ready'));
-  assert.ok(modules.some(item => item.id === 'file-converter' && item.status === 'planned'));
+  assert.ok(modules.some(item => item.id === 'file-converter' && item.status === 'ready'));
   assert.equal(modules.find(item => item.id === 'codex-web').href, 'https://203.0.113.10:8443');
 });
 

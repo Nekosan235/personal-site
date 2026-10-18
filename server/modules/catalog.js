@@ -33,11 +33,11 @@ export function getModules(config) {
     {
       id: 'file-converter',
       path: '/tools/file-converter',
-      title: '文件转换',
+      title: '格式转换',
       nav: false,
-      status: 'planned',
+      status: 'ready',
       group: 'tools',
-      description: '常见文件格式转换预留入口。',
+      description: '在浏览器本地转换图片、Markdown、JSON、YAML、CSV、Base64 和文本。',
     },
     {
       id: 'codex-web',
