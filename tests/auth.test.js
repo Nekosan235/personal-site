@@ -209,10 +209,10 @@ test('valid login uses safe cookie flags and grants access to registered modules
   assert.equal(modules.find(item => item.id === 'codex-web').href, 'https://203.0.113.10:8443');
 });
 
-test('browser form login redirects home only after success and never off-site', async t => {
+test('POST /login form redirects home only after success and never off-site', async t => {
   const f = await fixture(t);
   const c = f.client();
-  const missing = await c.request('/api/auth/login', {
+  const missing = await c.request('/login', {
     method: 'POST',
     body: new URLSearchParams({ username: USER, password: PASSWORD, next: 'https://evil.example/phish' }).toString(),
     headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'text/html' },
@@ -221,7 +221,7 @@ test('browser form login redirects home only after success and never off-site', 
   assert.equal(missing.headers.get('location'), null);
 
   const csrf = await c.challenge();
-  const failed = await c.request('/api/auth/login', {
+  const failed = await c.request('/login', {
     method: 'POST',
     body: new URLSearchParams({
       username: USER,
@@ -239,7 +239,7 @@ test('browser form login redirects home only after success and never off-site', 
   assert.equal((await c.request('/')).headers.get('location'), '/login');
 
   const again = await c.challenge();
-  const ok = await c.request('/api/auth/login', {
+  const ok = await c.request('/login', {
     method: 'POST',
     body: new URLSearchParams({
       username: `  ${USER}  `,
@@ -251,6 +251,7 @@ test('browser form login redirects home only after success and never off-site', 
   });
   assert.equal(ok.status, 303);
   assert.equal(ok.headers.get('location'), '/');
+  assert.equal(ok.headers.getSetCookie().some((value) => value.startsWith(`${COOKIE_NAMES.session}=`) && !/Max-Age=0/.test(value)), true);
   assert.equal((await c.request('/')).status, 200);
   assert.equal((await (await c.request('/api/session')).json()).user.username, USER);
 });

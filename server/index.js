@@ -91,11 +91,6 @@ function fillTemplate(content, replacements) {
   ));
 }
 
-function isFormLogin(req) {
-  const type = String(req.headers['content-type'] ?? '').split(';')[0].trim().toLowerCase();
-  return type === 'application/x-www-form-urlencoded';
-}
-
 function getClientIp(req) {
   const remote = req.socket.remoteAddress ?? '';
   const normalizedRemote = remote.startsWith('::ffff:') ? remote.slice(7) : remote;
@@ -331,6 +326,87 @@ export function createApplication(options = {}) {
     return sendJson(res, 200, { ok: true, deviceId: accepted.deviceId, updatedAt: accepted.updatedAt });
   }
 
+  async function handleLogin(req, res, form) {
+    const cookies = parseCookies(req.headers.cookie);
+    const prelogin = verifyPreloginToken(
+      cookies.get(COOKIE_NAMES.prelogin),
+      config.authSecret || 'dev-insecure-secret',
+      now(),
+    );
+    const ip = getClientIp(req);
+    if (!form) {
+      const csrfHeader = req.headers['x-csrf-token'];
+      if (typeof csrfHeader !== 'string' || !prelogin || csrfHeader !== prelogin.csrf) return forbidden(res);
+      const rate = limiter.check(ip, now());
+      if (!rate.allowed) return sendJson(res, rate.statusCode ?? 401, { error: 'invalid credentials' });
+    }
+
+    let raw;
+    try {
+      raw = await readBody(req, config.maxBodyBytes);
+    } catch (error) {
+      if (error.closeConnection) res.shouldKeepAlive = false;
+      const status = error.statusCode ?? 400;
+      const extra = error.closeConnection ? { Connection: 'close' } : {};
+      if (form) return renderLogin(res, { status, showError: true, headers: extra });
+      return sendJson(res, status, { error: 'bad request' }, extra);
+    }
+
+    let username = '';
+    let password = '';
+    if (form) {
+      const params = new URLSearchParams(raw);
+      username = params.get('username') ?? '';
+      password = params.get('password') ?? '';
+      const csrf = params.get('csrf_token') ?? '';
+      if (!prelogin || csrf !== prelogin.csrf) {
+        return renderLogin(res, { status: 403, username, showError: true });
+      }
+      const rate = limiter.check(ip, now());
+      if (!rate.allowed) {
+        return renderLogin(res, { status: rate.statusCode ?? 401, username, showError: true });
+      }
+    } else {
+      let body;
+      try {
+        body = raw ? JSON.parse(raw) : {};
+      } catch {
+        return sendJson(res, 400, { error: 'bad request' });
+      }
+      username = typeof body.username === 'string' ? body.username : '';
+      password = String(body.password ?? '');
+    }
+
+    username = username.trim();
+    const usernameOk = username === config.authUsername;
+    let passwordOk = false;
+    try {
+      passwordOk = await verifyPassword(password, config.authPasswordHash);
+    } catch (error) {
+      const status = error.statusCode ?? 503;
+      if (form) return renderLogin(res, { status, username, showError: true });
+      return sendJson(res, status, { error: 'temporarily unavailable' });
+    }
+    if (!usernameOk || !passwordOk) {
+      if (form) return renderLogin(res, { status: 401, username, showError: true });
+      return sendJson(res, 401, { error: 'invalid credentials' });
+    }
+
+    limiter.reset(ip);
+    const oldToken = cookies.get(COOKIE_NAMES.session);
+    const nextSession = store.rotate(oldToken, config.authUsername, config.sessionTtlMs, now());
+    const sessionCookies = [
+      sessionCookie(nextSession.token, config),
+      clearCookie(COOKIE_NAMES.prelogin, config),
+    ];
+    // The browser form posts to /login. Success is one 303 to `/` with the
+    // session cookie on that same response, so the follow-up GET is 200
+    // instead of another 303 back to the password form. Failures stay on
+    // 4xx and do not send a Location header.
+    if (form) return redirect(res, '/', { 'Set-Cookie': sessionCookies });
+    return sendJson(res, 200, { ok: true }, { 'Set-Cookie': sessionCookies });
+  }
+
   const server = createServer(async (req, res) => {
     try {
       const url = new URL(req.url ?? '/', 'http://internal');
@@ -338,6 +414,11 @@ export function createApplication(options = {}) {
 
       if (req.method === 'GET' && pathname === '/login') {
         return await renderLogin(res);
+      }
+
+      if (req.method === 'POST' && pathname === '/login') {
+        if (!isAllowedOrigin(req, config)) return forbidden(res);
+        return await handleLogin(req, res, true);
       }
 
       if (req.method === 'GET' && isPublicAsset(pathname)) {
@@ -364,89 +445,7 @@ export function createApplication(options = {}) {
         if (req.method === 'POST' && !isAllowedOrigin(req, config)) return forbidden(res);
 
         if (req.method === 'POST' && pathname === '/api/auth/login') {
-          const form = isFormLogin(req);
-          const cookies = parseCookies(req.headers.cookie);
-          const prelogin = verifyPreloginToken(
-            cookies.get(COOKIE_NAMES.prelogin),
-            config.authSecret || 'dev-insecure-secret',
-            now(),
-          );
-          const csrfHeader = req.headers['x-csrf-token'];
-          if (!form && (typeof csrfHeader !== 'string' || !prelogin || csrfHeader !== prelogin.csrf)) {
-            return forbidden(res);
-          }
-
-          const ip = getClientIp(req);
-          if (!form) {
-            const rate = limiter.check(ip, now());
-            if (!rate.allowed) return sendJson(res, rate.statusCode ?? 401, { error: 'invalid credentials' });
-          }
-
-          let raw;
-          try {
-            raw = await readBody(req, config.maxBodyBytes);
-          } catch (error) {
-            if (error.closeConnection) res.shouldKeepAlive = false;
-            const status = error.statusCode ?? 400;
-            const extra = error.closeConnection ? { Connection: 'close' } : {};
-            if (form) return await renderLogin(res, { status, showError: true, headers: extra });
-            return sendJson(res, status, { error: 'bad request' }, extra);
-          }
-
-          let username = '';
-          let password = '';
-          if (form) {
-            const params = new URLSearchParams(raw);
-            username = params.get('username') ?? '';
-            password = params.get('password') ?? '';
-            const csrf = params.get('csrf_token') ?? '';
-            if (!prelogin || csrf !== prelogin.csrf) {
-              return await renderLogin(res, { status: 403, username, showError: true });
-            }
-            const rate = limiter.check(ip, now());
-            if (!rate.allowed) {
-              return await renderLogin(res, { status: rate.statusCode ?? 401, username, showError: true });
-            }
-          } else {
-            let body;
-            try {
-              body = raw ? JSON.parse(raw) : {};
-            } catch {
-              return sendJson(res, 400, { error: 'bad request' });
-            }
-            username = typeof body.username === 'string' ? body.username : '';
-            password = String(body.password ?? '');
-          }
-
-          username = username.trim();
-          const usernameOk = username === config.authUsername;
-          let passwordOk = false;
-          try {
-            passwordOk = await verifyPassword(password, config.authPasswordHash);
-          } catch (error) {
-            const status = error.statusCode ?? 503;
-            if (form) return await renderLogin(res, { status, username, showError: true });
-            return sendJson(res, status, { error: 'temporarily unavailable' });
-          }
-          if (!usernameOk || !passwordOk) {
-            if (form) return await renderLogin(res, { status: 401, username, showError: true });
-            return sendJson(res, 401, { error: 'invalid credentials' });
-          }
-
-          limiter.reset(ip);
-          const oldToken = cookies.get(COOKIE_NAMES.session);
-          const nextSession = store.rotate(oldToken, config.authUsername, config.sessionTtlMs, now());
-          const sessionCookies = [
-            sessionCookie(nextSession.token, config),
-            clearCookie(COOKIE_NAMES.prelogin, config),
-          ];
-          // Native form posts must end in a document navigation. 303 to `/`
-          // includes the session cookie, so that GET returns 200 instead of
-          // the anonymous 303 back to /login. A second hop onto the password
-          // form makes browsers treat the login as failed and skip saving.
-          // Wrong passwords stay on 4xx with no Location header.
-          if (form) return redirect(res, '/', { 'Set-Cookie': sessionCookies });
-          return sendJson(res, 200, { ok: true }, { 'Set-Cookie': sessionCookies });
+          return await handleLogin(req, res, false);
         }
 
         const apiSession = requireSession(req, res, store);
