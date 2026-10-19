@@ -1,6 +1,6 @@
 # 个人空间
 
-一个轻量、自托管的个人工具箱：原生 Node.js 后端、HTML/CSS/ES modules 前端。界面使用本地托管的 [Tabler 1.6.1](https://github.com/tabler/tabler)（MIT）UI kit，提供侧边导航、作品墙、设备监控卡片、响应式工具页面和日夜主题。保留原有认证与监控接口，运行时仍无需 npm 依赖或前端构建。
+一个轻量、自托管的个人工具箱：原生 Node.js 后端、HTML/CSS/ES modules 前端。界面使用本地托管的 [Tabler 1.6.1](https://github.com/tabler/tabler)（MIT）UI kit，提供侧边导航、作品墙、设备监控卡片、响应式工具页面和日夜主题。保留原有认证与监控接口。页面仍然没有前端构建；Web SSH 需要在服务器上执行 `npm ci --omit=dev`，安装 `ssh2` 和 `ws`。
 
 Tabler 样式位于 `public/assets/vendor/tabler/tabler.min.css`，上游许可及 Bootstrap 许可保存在同目录的 `LICENSE`。图片/GIF 处理复用 [wechat-toolbox](https://github.com/Nekosan235/wechat-toolbox) 中独立的像素算法与 GIF 编解码逻辑，来源许可位于 `public/assets/components/image-tools/LICENSE`。文件只在浏览器中读取并通过 ES module Worker 处理，没有文件上传 API、外部 CDN、第三方运行时依赖或构建步骤。外观控制器同时维护 `data-theme` 与 Tabler 的 `data-bs-theme`。
 
@@ -19,6 +19,7 @@ Tabler 样式位于 `public/assets/vendor/tabler/tabler.min.css`，上游许可�
 - 图片最大 10 MB/3200 万原始像素；GIF 最大 8 MB、60 帧、15 秒/3200 万逻辑像素，导出最大 480px 长边/20 MB。文件仅在浏览器本地处理，不上传服务器。
 - 格式转换：浏览器本地处理图片、Markdown、JSON、YAML、CSV、Base64、URL 和文本，见下文。HEIC、PDF 与音视频保持不可用。
 - 无水印下载：粘贴小红书或抖音分享文字，由本机解析服务取出图片或视频，再经站点代理保存。见下文。
+- 终端：登录后从侧边栏进入 `/terminal`。右侧列出监控里已经登记的服务器，点一台才连接；断开会立刻关掉 SSH。见下文。
 - Agent 与智能抠图保持清晰标注的待开放入口；Codex Web 外链由环境变量配置。
 
 ## 格式转换
@@ -46,7 +47,7 @@ Tabler 样式位于 `public/assets/vendor/tabler/tabler.min.css`，上游许可�
 
 ## 运行条件
 
-Node.js 24.14 或更新的 24.x；Linux 用于真实本机监控。内置 `node:sqlite` 在当前版本仍有实验性提示，升级前请跑测试。NAS 和远程云主机需要 Python 3.11+ 与可用的系统服务管理器。不需要 npm 安装依赖、构建、Docker、Prometheus 或 Grafana。
+Node.js 24.14 或更新的 24.x；Linux 用于真实本机监控。内置 `node:sqlite` 在当前版本仍有实验性提示，升级前请跑测试。NAS 和远程云主机需要 Python 3.11+ 与可用的系统服务管理器。不需要前端构建、Docker、Prometheus 或 Grafana。发布目录需要 `npm ci --omit=dev`，只为 SSH 代理安装 `ssh2` 和 `ws`。
 
 ```sh
 node --test tests/*.test.js
@@ -91,7 +92,7 @@ install -d -m 700 /etc/personal-site
 install -d -o personal-site -g personal-site -m 700 /var/lib/personal-site
 ```
 
-上传源码到新 release 并创建 `/opt/personal-site/current` 链接。代码以 root 拥有，文件 644、目录 755。复制 `deploy/site.env.example` 至 `/etc/personal-site/site.env`，填写生成凭据及自己的地址，文件权限 600。
+上传源码到新 release 并创建 `/opt/personal-site/current` 链接。代码以 root 拥有，文件 644、目录 755。在该目录执行 `npm ci --omit=dev`。复制 `deploy/site.env.example` 至 `/etc/personal-site/site.env`，填写生成凭据及自己的地址，文件权限 600。
 
 ```sh
 install -m 644 deploy/personal-site.service /etc/systemd/system/personal-site.service
@@ -99,7 +100,7 @@ systemctl daemon-reload
 systemctl enable --now personal-site
 ```
 
-检查 Node 可执行路径是否与模板中的 `/usr/local/bin/node` 一致。Caddy 模板中的 `203.0.113.10` 是文档示例地址，必须改为自己的公网 IP；证书模板使用支持 IP 短期证书的 Caddy/ACME 配置。也可使用自己的域名和常规 HTTPS 配置。80 端口转 HTTPS、443 转网站的回环端口 3010，8443 转已有 Codex 服务的回环端口 3001；未部署 Codex 时删除对应代理块。
+检查 Node 可执行路径是否与模板中的 `/usr/local/bin/node` 一致。Caddy 模板中的 `203.0.113.10` 是文档示例地址，必须改为自己的公网 IP；证书模板使用支持 IP 短期证书的 Caddy/ACME 配置。也可使用自己的域名和常规 HTTPS 配置。80 端口转 HTTPS、443 转网站的回环端口 3010，8443 转已有 Codex 服务的回环端口 3001；未部署 Codex 时删除对应代理块。Caddy 的 `reverse_proxy` 会把 `/api/terminal/session` 的 WebSocket 升级交给 Node，不要缓冲或去掉这条路径的 `Connection` / `Upgrade`。
 
 公网只开放需要的代理端口，不公开 3010/3001。修改站点 origin 时同步 Caddy 与 `SITE_ORIGIN`。
 
@@ -157,6 +158,38 @@ journalctl -u cloud-monitor -n 30 --no-pager
 
 需要 Python 3.11+。默认只统计根分区；`CLOUD_MONITOR_PATHS` 可附加其它挂载点，和根分区同一文件系统的路径会去掉。未收到上报时卡片显示等待，超过过期阈值显示离线并保留最后读数，与 NAS 相同。两端系统时间需要同步。网站进程重启后，下一次上报恢复该卡的历史。
 
+## 终端
+
+侧边栏「终端」打开 `/terminal`。页面先处于空闲，不会自动连接。右侧列出已经写进 `site.env` 的服务器，名称、地区、IP 和在线状态与概览页的监控卡一致。点一台才发起 SSH；点另一台会先断开当前会话，状态栏显示「断开 A → 连接 B」。「断开连接」在连接中、已连接和断开过程中都可以点，并会马上关闭 WebSocket 和服务器上的 SSH 会话。离开页面或登录失效也会断开。
+
+浏览器只收到 `id`、名称、地区、展示用主机地址和在线状态。密码、私钥和令牌只留在 Node 进程里，从环境变量或 root 可读的文件读取。允许连接的机器由 `SSH_1` 到 `SSH_8` 登记，空的 ID 会跳过。`SSH_N_ID` 与 `SERVER_ID` 或 `REMOTE_CLOUD_N_ID` 相同时，列表沿用那张监控卡的名称和地址。`SSH_N_HOST` 只决定 Node 拨号的地址，例如阿里云本机拨 `127.0.0.1`，页面仍显示 `SERVER_IP`。
+
+在阿里云的 `/etc/personal-site/site.env` 为三台已知虚拟机增加这三个槽，值用占位说明，真实私钥不要写进仓库：
+
+| 槽 | ID | 拨号地址 | 页面上看到的卡 |
+| --- | --- | --- | --- |
+| `SSH_1` | `cloud-01`（`SERVER_ID`） | `127.0.0.1` | 本机阿里云监控卡 |
+| `SSH_2` | `huawei-ap-southeast-1` | 留空则使用该卡的 IP | 华为云 · 东南亚 |
+| `SSH_3` | `huawei-cn-east-3` | 留空则使用该卡的 IP | 华为云 · 华东 |
+
+```dotenv
+SSH_1_ID=cloud-01
+SSH_1_HOST=127.0.0.1
+SSH_1_PORT=22
+SSH_1_USERNAME=root
+SSH_1_PRIVATE_KEY_FILE=/etc/personal-site/ssh/aliyun.key
+SSH_2_ID=huawei-ap-southeast-1
+SSH_2_PORT=22
+SSH_2_USERNAME=root
+SSH_2_PRIVATE_KEY_FILE=/etc/personal-site/ssh/huawei-ap-southeast-1.key
+SSH_3_ID=huawei-cn-east-3
+SSH_3_PORT=22
+SSH_3_USERNAME=root
+SSH_3_PRIVATE_KEY_FILE=/etc/personal-site/ssh/huawei-cn-east-3.key
+```
+
+密钥文件属主 `root:personal-site`，权限 640。也可以用 `SSH_N_PASSWORD_FILE` 指向密码文件，或临时把 PEM / 密码放进 `SSH_N_PRIVATE_KEY` / `SSH_N_PASSWORD`。可选 `SSH_N_HOST_FINGERPRINT=SHA256:...` 校验主机指纹。默认空闲 10 分钟断开，单会话最多 32 MB，最长 4 小时，同时最多 4 个会话。测试不拨真实虚拟机。
+
 ## 目录与扩展
 
 ```text
@@ -164,20 +197,22 @@ server/auth/                    登录、密码、会话、Cookie 与限流
 server/providers/               本机、NAS、远程云主机与开发模拟数据
 server/modules/catalog.js      模块清单与受保护路径
 server/media/                   无水印下载：链接识别、后端调用与 CDN 代理
+server/terminal/                Web SSH：允许列表、WebSocket 与服务器端登录
 public/assets/components/      导航、主题、图像处理 Worker 与通用组件
+public/assets/vendor/xterm/    终端模拟器（xterm.js 5.5.0，MIT）
 public/assets/components/image-tools/ 像素算法、画笔与 GIF 编解码
 public/assets/components/format-convert/ 格式转换：图片识别与文本、数据、Markdown
 public/assets/pages/            仪表盘、作品墙、工具箱与编辑页面
 public/assets/components/portfolio-data.js  作品与奖项文案
 public/assets/portfolio/         奖状与占位图，仅登录后可访问
-tests/                          认证、监控、图片算法、GIF、格式转换与无水印下载回归测试
+tests/                          认证、监控、终端、图片算法、GIF、格式转换与无水印下载回归测试
 ```
 
 新占位工具只需在 `catalog.js` 注册；完整页面加入 `pages/` 并在 `app.js` 注册。写 API 继续保留会话、同源和 CSRF 校验，上传文件另设类型及体积边界。前端升级时增加 HTML 和 ES module 的资源版本参数。
 
 ## 隐私与许可
 
-本仓库包含源码、测试和示例配置。远程监控示例写明了站点 origin `https://47.117.181.103`，以及两台华为云的公网地址和显示名称，方便安装上报代理。仓库没有登录密码、监控密钥、NAS 密钥、运行数据库或部署记录。请把真实密钥留在 Git 外。
+本仓库包含源码、测试和示例配置。远程监控示例写明了站点 origin `https://47.117.181.103`，以及两台华为云的公网地址和显示名称，方便安装上报代理。仓库没有登录密码、监控密钥、NAS 密钥、SSH 私钥、运行数据库或部署记录。请把真实密钥留在 Git 外。
 
 界面参考 Apple 的布局和可访问性原则，未使用 Apple 标志或捆绑 SF 字体。原创短句未署名为他人名言。
 
