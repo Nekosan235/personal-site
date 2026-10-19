@@ -29,6 +29,25 @@ function emptyMetric(label, extra = {}) {
   };
 }
 
+export function normalizeCpuPercent(value) {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return null;
+  const rounded = round(value, 1);
+  if (rounded < 0 || rounded > 100) return null;
+  return rounded;
+}
+
+function emptyCpuMetric(error = null) {
+  return {
+    used: null,
+    total: null,
+    available: null,
+    unit: '%',
+    history: [],
+    historyLabel: 'cpu percent',
+    error,
+  };
+}
+
 export function bytesToGiB(bytes) {
   return round(bytes / GIB);
 }
@@ -195,6 +214,7 @@ export class LiveDashboardProvider {
     this.inFlight = null;
     this.lastDashboard = null;
     this.previousCpu = null;
+    this.cpuHistory = [];
     this.memoryHistory = [];
     this.diskHistory = [];
   }
@@ -245,9 +265,12 @@ export class LiveDashboardProvider {
   }
 
   buildDashboard(sample) {
+    const cpuPercent = normalizeCpuPercent(sample.server.cpuPercent);
+    const cpuError = sample.server.cpuError ?? null;
+    const cpu = this.buildCpuMetric(cpuPercent, cpuError);
     const memory = this.buildMetric(sample.metrics.memory, this.memoryHistory, 'memory used GiB');
     const disk = this.buildMetric(sample.metrics.disk, this.diskHistory, 'disk used GiB');
-    const hasMetricError = Boolean(memory.error || disk.error || sample.server.cpuError);
+    const hasMetricError = Boolean(memory.error || disk.error || cpuError);
     return {
       mode: 'live',
       sampledAt: sample.sampledAt,
@@ -257,9 +280,26 @@ export class LiveDashboardProvider {
       error: hasMetricError ? dashboardError(new Error('Some live metrics are unavailable'), 'partial_metric_unavailable') : null,
       server: {
         ...sample.server,
-        cpuError: sample.server.cpuError ?? null,
+        cpuPercent,
+        cpuError,
       },
-      metrics: { memory, disk },
+      metrics: { cpu, memory, disk },
+    };
+  }
+
+  buildCpuMetric(percent, error) {
+    if (percent != null && error == null) {
+      this.cpuHistory.push(percent);
+      while (this.cpuHistory.length > this.historyLimit) this.cpuHistory.shift();
+    }
+    return {
+      used: percent,
+      total: percent == null ? null : 100,
+      available: percent == null ? null : round(100 - percent, 1),
+      unit: '%',
+      history: [...this.cpuHistory],
+      historyLabel: 'cpu percent',
+      error,
     };
   }
 
@@ -310,6 +350,7 @@ export class LiveDashboardProvider {
         loadAverage: null,
       },
       metrics: {
+        cpu: emptyCpuMetric(normalized),
         memory: emptyMetric('memory used GiB', { error: normalized }),
         disk: emptyMetric('disk used GiB', { reserved: null, error: normalized }),
       },

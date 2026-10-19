@@ -41,6 +41,9 @@ class DomNode {
   getAttribute(name) { return this.attributes.get(name) ?? null; }
   removeAttribute(name) { this.attributes.delete(name); }
   toggleAttribute(name, enabled) { if (enabled) this.setAttribute(name, ''); else this.removeAttribute(name); }
+  addEventListener() {}
+  removeEventListener() {}
+  classList = { toggle() {} };
 }
 
 function withDom(callback) {
