@@ -12,7 +12,7 @@ import { renderGifEditor } from './pages/gif-editor.js?v=1.4.0';
 import { renderFileConverter } from './pages/file-converter.js?v=1.6.0';
 import { renderMediaDownload } from './pages/media-download.js?v=1.7.0';
 import { createThemeController } from './components/theme.js?v=1.4.0';
-import { createAppearanceSettings } from './components/appearance.js?v=1.4.0';
+import { createAppearanceSettings } from './components/appearance.js?v=1.6.0';
 
 const main = document.querySelector('#main-content');
 const navigationRoot = document.querySelector('#navigation-root');
