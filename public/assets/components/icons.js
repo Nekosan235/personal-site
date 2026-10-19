@@ -20,6 +20,7 @@ const paths = {
   'file-converter': ['M7 3h7l4 4v14H7z', 'M14 3v4h4', 'M4 14h6', 'M8 11l-3 3 3 3', 'M17 10l3 3-3 3'],
   'media-download': ['M12 4v10', 'M8 10l4 4 4-4', 'M5 19h14'],
   agents: ['M9 5h6M12 2v3M5 8h14v12H5V8ZM2 12h3M19 12h3M8 20v2M16 20v2', 'M9 12h.01M15 12h.01M9 16h6'],
+  terminal: ['M4 5h16v14H4z', 'M7 9l3 3-3 3', 'M12 15h5'],
   unavailable: ['M12 3v7M12 14v.01', 'M20 21H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h16a1 1 0 0 1 1 1v16a1 1 0 0 1-1 1Z'],
 };
 

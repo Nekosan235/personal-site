@@ -1,6 +1,7 @@
 import { mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { loadSshTargets, validateSshTargets } from './terminal/targets.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const projectRoot = resolve(here, '..');
@@ -187,6 +188,52 @@ export function loadConfig(env = process.env, overrides = {}) {
       host: pick(overrides, env, 'nasDeviceHost', 'NAS_DEVICE_HOST', 'nas.local:5666'),
       secret: pick(overrides, env, 'nasMonitorSecret', 'NAS_MONITOR_SECRET', ''),
     }),
+    sshIdleTimeoutMs: boundedNumber(
+      pick(overrides, env, 'sshIdleTimeoutMs', 'SSH_IDLE_TIMEOUT_MS', 10 * 60 * 1000),
+      10 * 60 * 1000,
+      5_000,
+      24 * 60 * 60 * 1000,
+    ),
+    sshMaxSessions: boundedNumber(
+      pick(overrides, env, 'sshMaxSessions', 'SSH_MAX_SESSIONS', 4),
+      4,
+      1,
+      8,
+    ),
+    sshMaxSessionBytes: boundedNumber(
+      pick(overrides, env, 'sshMaxSessionBytes', 'SSH_MAX_SESSION_BYTES', 32 * 1024 * 1024),
+      32 * 1024 * 1024,
+      64 * 1024,
+      128 * 1024 * 1024,
+    ),
+    sshReadyTimeoutMs: boundedNumber(
+      pick(overrides, env, 'sshReadyTimeoutMs', 'SSH_READY_TIMEOUT_MS', 15_000),
+      15_000,
+      1_000,
+      60_000,
+    ),
+    sshMaxSessionMs: boundedNumber(
+      pick(overrides, env, 'sshMaxSessionMs', 'SSH_MAX_SESSION_MS', 4 * 60 * 60 * 1000),
+      4 * 60 * 60 * 1000,
+      60_000,
+      24 * 60 * 60 * 1000,
+    ),
+    sshTargets: loadSshTargets(overrides, env, [
+      {
+        id: pick(overrides, env, 'serverId', 'SERVER_ID', 'cloud-01'),
+        type: 'cloud',
+        name: pick(overrides, env, 'serverName', 'SERVER_NAME', 'Cloud 01'),
+        region: pick(overrides, env, 'serverRegion', 'SERVER_REGION', '上海 · 阿里云'),
+        host: pick(overrides, env, 'serverIp', 'SERVER_IP', '203.0.113.10'),
+        ip: pick(overrides, env, 'serverIp', 'SERVER_IP', '203.0.113.10'),
+      },
+      ...loadRemoteDevices(overrides, env, {
+        id: pick(overrides, env, 'nasDeviceId', 'NAS_DEVICE_ID', 'fnos-nas'),
+        name: pick(overrides, env, 'nasDeviceName', 'NAS_DEVICE_NAME', 'fnOS NAS'),
+        host: pick(overrides, env, 'nasDeviceHost', 'NAS_DEVICE_HOST', 'nas.local:5666'),
+        secret: pick(overrides, env, 'nasMonitorSecret', 'NAS_MONITOR_SECRET', ''),
+      }),
+    ]),
   };
 }
 
@@ -227,6 +274,7 @@ export function validateRuntimeConfig(config) {
       }
     }
   }
+  missing.push(...validateSshTargets(config.sshTargets));
   if (missing.length > 0) {
     throw new Error(`Missing required production configuration: ${missing.join(', ')}`);
   }

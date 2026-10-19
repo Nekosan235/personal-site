@@ -119,7 +119,7 @@ async function fixture(t, overrides = {}) {
 test('anonymous visitors get only login UI and no protected pages, code or data', async t => {
   const f = await fixture(t);
   const c = f.client();
-  for (const path of ['/', '/tools', '/agents', '/tools/remove-background', '/tools/gif-editor', '/tools/file-converter', '/tools/media-download']) {
+  for (const path of ['/', '/tools', '/agents', '/terminal', '/tools/remove-background', '/tools/gif-editor', '/tools/file-converter', '/tools/media-download']) {
     const response = await c.request(path);
     assert.equal(response.status, 303, path);
     assert.equal(response.headers.get('location'), '/login');
