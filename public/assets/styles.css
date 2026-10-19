@@ -20,6 +20,7 @@
   --accent-soft: #e7f0fa;
   --on-accent: #fff;
   --positive: #1c7f3c;
+  --cyan: #0E7490;
   --warning: #8a5a09;
   --negative: #b42318;
   --accent-press: #185aab;
@@ -120,6 +121,7 @@
   --accent-soft: #1A2A44;
   --on-accent: #0B0E11;
   --positive: #3DDC97;
+  --cyan: #67E8F9;
   --success: #3DDC97;
   --warning: #F0B429;
   --warn: #F0B429;
@@ -264,6 +266,11 @@ input[type="number"], .form-control[inputmode="decimal"] { font-family: var(--fo
 .device-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; gap: 12px; }
 .device-card { min-width: 0; overflow: hidden; }
 .server-heading.card-header { display: flex; justify-content: space-between; align-items: center; gap: 12px; min-height: 0; padding: 12px 16px; }
+.server-heading-actions { display: flex; align-items: center; gap: 8px; flex: none; min-width: 0; }
+.metric-view-toggle { display: inline-flex; flex: none; border: 1px solid var(--border); border-radius: 2px; background: var(--surface-2); }
+.metric-view-option { margin: 0; min-height: 36px; min-width: 44px; padding: 0 10px; border: 0; border-right: 1px solid var(--border); background: transparent; color: var(--text-muted); font-family: var(--mono); font-size: 12px; letter-spacing: .04em; cursor: pointer; }
+.metric-view-option:last-child { border-right: 0; }
+.metric-view-option[aria-pressed="true"] { background: var(--accent-soft); color: var(--positive); }
 .device-identity { display: flex; align-items: center; gap: 12px; min-width: 0; }
 .device-avatar { flex: none; }
 .server-heading h2 { margin: 1px 0 0; font-size: 14px; font-weight: 600; line-height: 1.4; overflow-wrap: anywhere; }
@@ -280,6 +287,7 @@ input[type="number"], .form-control[inputmode="decimal"] { font-family: var(--fo
 .metrics-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0; }
 .metric-panel { min-width: 0; padding: 14px 16px 16px; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); }
 .metrics-grid > .metric-panel:nth-child(2n) { border-right: 0; }
+.metrics-grid > .metric-panel:last-child:nth-child(odd) { grid-column: 1 / -1; border-right: 0; }
 .metric-title-row { display: flex; justify-content: space-between; align-items: baseline; gap: 6px; margin-bottom: 6px; }
 .metric-title { margin: 0; color: var(--secondary); font-size: 11px; font-weight: 500; font-family: var(--font-mono); letter-spacing: .04em; text-transform: uppercase; }
 .metric-reading-note { color: var(--warning); font-size: 10px; font-family: var(--font-mono); }
@@ -293,8 +301,10 @@ input[type="number"], .form-control[inputmode="decimal"] { font-family: var(--fo
 .metric-details { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 4px; margin-top: 8px; color: var(--secondary); font-size: 11px; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 .metric-capacity-note { min-height: 14px; margin: 7px 0 0; color: var(--secondary); font-size: 9px; line-height: 1.6; }
 .metric-chart { margin-top: 12px; }
-.metric-sparkline { display: block; width: 100%; height: 48px; border-bottom: 1px solid var(--line); }
-.metric-sparkline polyline { fill: none; stroke: var(--blue); stroke-width: 1.5; stroke-linecap: square; stroke-linejoin: miter; }
+.metric-sparkline { display: block; width: 100%; height: 48px; border: 1px solid var(--border); background: var(--bg); }
+.metric-sparkline polyline { fill: none; stroke: var(--accent); stroke-width: 1.5; stroke-linecap: square; stroke-linejoin: miter; }
+.metric-panel[data-metric="cpu"] .metric-sparkline polyline { stroke: var(--positive); }
+.metric-panel[data-metric="memory"] .metric-sparkline polyline { stroke: var(--cyan); }
 .chart-caption { display: block; margin-top: 6px; color: var(--secondary); font-size: 10px; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 .metric-panel[data-stale] .metric-progress::-webkit-progress-value { background: var(--secondary); }
 .metric-panel[data-stale] .metric-progress::-moz-progress-bar { background: var(--secondary); }
@@ -404,7 +414,10 @@ input[type="number"], .form-control[inputmode="decimal"] { font-family: var(--fo
   .page-description { font-size: 12px; }
   .monitor-badge, .status-badge { padding: 3px 6px; font-size: 10px; }
   .device-list { gap: 10px; }
-  .server-heading.card-header { min-height: 0; padding: 10px; }
+  .server-heading.card-header { min-height: 0; padding: 10px; flex-wrap: wrap; align-items: flex-start; }
+  .device-identity { flex: 1 1 140px; }
+  .server-heading-actions { flex: 1 1 auto; justify-content: flex-end; }
+  .metric-view-option { min-height: 44px; min-width: 52px; padding-inline: 12px; font-size: 13px; }
   .device-identity { gap: 8px; }
   .server-heading h2 { font-size: 14px; }
   .server-content.card-body { padding: 0; }

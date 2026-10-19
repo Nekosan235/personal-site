@@ -10,8 +10,17 @@ export function getDashboardMock(now = new Date()) {
       os: 'Debian 13',
       vcpu: 2,
       status: 'online',
+      cpuPercent: 18.4,
+      uptimeSeconds: 86_400,
     },
     metrics: {
+      cpu: {
+        used: 18.4,
+        total: 100,
+        available: 81.6,
+        unit: '%',
+        history: [11, 12.4, 14, 13.2, 16, 15.5, 18, 17.4, 19, 18.2, 18.4],
+      },
       memory: {
         used: 0.72,
         total: 2,

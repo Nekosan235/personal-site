@@ -48,7 +48,7 @@ function report(value = 1, sampledAt = new Date(NOW).toISOString()) {
       os: 'Linux test',
       vcpu: 4,
       uptimeSeconds: 123,
-      cpuPercent: null,
+      cpuPercent: value,
       loadAverage: [0.1, 0.2, 0.3],
     },
     metrics: {
@@ -120,16 +120,26 @@ test('NAS store shows waiting, online, history and stale states without fake onl
   assert.equal(dashboard.stale, false);
   assert.deepEqual(dashboard.metrics.memory.history, [3, 4, 5]);
   assert.deepEqual(dashboard.metrics.disk.history, [15, 20, 25]);
+  assert.deepEqual(dashboard.metrics.cpu.history, [3, 4, 5]);
+  assert.equal(dashboard.metrics.cpu.used, 5);
+  assert.equal(dashboard.metrics.cpu.total, 100);
+  assert.equal(dashboard.metrics.cpu.available, 95);
   assert.equal(dashboard.metrics.disk.used, 25);
   assert.equal(dashboard.metrics.disk.available, 24);
   assert.equal(dashboard.metrics.disk.reserved, 1.5);
   assert.equal(dashboard.metrics.disk.volumes.length, 2);
+  const invalid = report(6, new Date(now).toISOString());
+  invalid.server.cpuPercent = 150;
+  store.acceptReport(invalid);
+  assert.deepEqual(store.getDashboard().metrics.cpu.history, [3, 4, 5]);
+  assert.equal(store.getDashboard().metrics.cpu.used, null);
 
   now += 61_000;
   dashboard = store.getDashboard();
   assert.equal(dashboard.stale, true);
   assert.equal(dashboard.server.status, 'offline');
   assert.equal(dashboard.error.code, 'stale_report');
+  assert.deepEqual(dashboard.metrics.cpu.history, [3, 4, 5]);
 });
 
 test('NAS reports require fresh sampledAt and preserve null server numbers', async t => {
@@ -360,6 +370,8 @@ test('each remote device accepts only its own signature and keeps independent hi
   assert.equal(listed[2].name, '华为云 · 华东');
   assert.equal(listed[2].server.status, 'online');
   assert.equal(listed[2].metrics.memory.used, 2);
+  assert.deepEqual(listed[1].metrics.cpu.history, [3.5]);
+  assert.equal(listed[1].metrics.cpu.used, 3.5);
   assert.deepEqual(listed[1].metrics.disk.volumes, []);
 
   now += 30_000;
@@ -371,6 +383,7 @@ test('each remote device accepts only its own signature and keeps independent hi
   assert.equal(listed[1].stale, false);
   assert.equal(listed[1].server.status, 'online');
   assert.deepEqual(listed[1].metrics.memory.history, [1, 3]);
+  assert.deepEqual(listed[1].metrics.cpu.history, [3.5, 3.5]);
   assert.equal(listed[2].stale, true);
   assert.equal(listed[2].server.status, 'offline');
   assert.equal(listed[2].error.code, 'stale_report');
@@ -379,6 +392,7 @@ test('each remote device accepts only its own signature and keeps independent hi
   assert.equal(listed[0].stale, false);
   assert.equal(store.getDashboard().id, 'fnos-nas');
   assert.deepEqual(store.getDashboard().metrics.memory.history, [1, 2]);
+  assert.deepEqual(store.getDashboard().metrics.cpu.history, [1, 2]);
 
   assert.throws(() => store.acceptReport(cloudReport('huawei-cn-east-3'), 'huawei-ap-southeast-1'), /device_mismatch/);
 });

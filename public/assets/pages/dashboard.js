@@ -1,6 +1,6 @@
 import { apiRequest } from '../components/api.js?v=1.7.0';
 import { element, pageHeading, internalLink, externalLink, safeExternalHref } from '../components/dom.js?v=1.4.0';
-import { createMetricPanel, readMetric } from '../components/metric.js?v=1.4.0';
+import { createMetricPanel, readMetric, readMetricView, setMetricViewMode, subscribeMetricView } from '../components/metric.js?v=1.9.0';
 import { createPoller } from '../components/poller.js?v=1.4.0';
 import { createWelcomeRotation } from '../components/welcome.js?v=1.4.0';
 import { icon } from '../components/icons.js?v=1.4.0';
@@ -19,6 +19,48 @@ function volumeMetrics(data) {
 }
 
 function isRealData(data) { return data?.mode === 'live' || data?.mode === 'push'; }
+
+function cpuMetricSource(data) {
+  const metric = data?.metrics?.cpu;
+  if (metric && typeof metric === 'object') return metric;
+  const percent = data?.server?.cpuPercent;
+  if (typeof percent !== 'number' || !Number.isFinite(percent) || percent < 0 || percent > 100) return null;
+  return {
+    used: percent,
+    total: 100,
+    available: Math.max(0, 100 - percent),
+    unit: '%',
+    history: [],
+  };
+}
+
+function createMetricViewToggle() {
+  const wave = element('button', {
+    className: 'metric-view-option',
+    text: '波形',
+    attributes: { type: 'button', 'data-mode': 'wave' },
+  });
+  const bar = element('button', {
+    className: 'metric-view-option',
+    text: '进度',
+    attributes: { type: 'button', 'data-mode': 'bar' },
+  });
+  const group = element('div', {
+    className: 'metric-view-toggle',
+    attributes: { role: 'group', 'aria-label': '指标显示方式' },
+  }, [wave, bar]);
+  wave.addEventListener('click', () => setMetricViewMode('wave'));
+  bar.addEventListener('click', () => setMetricViewMode('bar'));
+
+  function apply(mode) {
+    const next = mode === 'bar' ? 'bar' : 'wave';
+    wave.setAttribute('aria-pressed', next === 'wave' ? 'true' : 'false');
+    bar.setAttribute('aria-pressed', next === 'bar' ? 'true' : 'false');
+  }
+
+  apply(readMetricView());
+  return { element: group, apply };
+}
 
 function staleAfter(data) {
   const reported = data?.refreshIntervalMs;
@@ -67,7 +109,7 @@ function setText(node, value) {
   if (node.textContent !== value) node.textContent = value;
 }
 
-function createDeviceView({ now, index }) {
+function createDeviceView({ now, index, signal }) {
   const notice = element('p', {
     className: 'device-note', text: '正在获取设备数据…',
     attributes: { role: 'status' },
@@ -76,16 +118,21 @@ function createDeviceView({ now, index }) {
   const name = element('h2', { className: 'device-name', text: '设备', attributes: { id: headingId } });
   const kind = element('p', { className: 'eyebrow', text: '设备监控' });
   const status = element('span', { className: 'server-status badge bg-secondary-lt', text: '连接中' });
-  const memory = createMetricPanel('内存');
-  const disk = createMetricPanel('硬盘');
+  const cpu = createMetricPanel('CPU', {
+    metric: 'cpu',
+    pendingLabel: '采样积累中',
+    unavailableLabel: 'CPU 暂不可用',
+  });
+  const memory = createMetricPanel('内存', { metric: 'memory' });
+  const disk = createMetricPanel('硬盘', { metric: 'disk' });
+  const viewToggle = createMetricViewToggle();
   const sampledAtLabel = element('span', { text: '最后采样 ' });
   const sampledAtTime = element('time', { text: '尚未取得数据' });
   const refreshHint = element('span', { className: 'refresh-hint', text: '每 5 秒刷新' });
   const failureTime = element('span', { className: 'monitor-failure-time' });
-  const cpu = element('span', { text: 'CPU 待获取' });
   const uptime = element('span', { text: '运行时间待获取' });
   const page = element('div', { className: 'device-card card' });
-  const metrics = element('div', { className: 'metrics-grid' }, [memory.element, disk.element]);
+  const metrics = element('div', { className: 'metrics-grid' }, [cpu.element, memory.element, disk.element]);
   const volumeList = element('div', { className: 'device-volumes', attributes: { hidden: '' } });
   const volumes = new Map();
   const serverFacts = element('dl', { className: 'server-facts' });
@@ -106,11 +153,11 @@ function createDeviceView({ now, index }) {
         element('span', { className: 'device-avatar avatar bg-blue-lt' }, [icon('server', 'icon')]),
         element('div', {}, [kind, name]),
       ]),
-      status,
+      element('div', { className: 'server-heading-actions' }, [viewToggle.element, status]),
     ]),
     element('div', { className: 'server-content card-body' }, [
       serverFacts,
-      element('div', { className: 'server-runtime' }, [cpu, uptime]),
+      element('div', { className: 'server-runtime' }, [uptime]),
       metrics, volumeList,
     ]),
   ]));
@@ -126,6 +173,29 @@ function createDeviceView({ now, index }) {
   let health = 'connecting';
   let firstFailure = null;
   let paused = false;
+
+  function applyViewMode(mode) {
+    cpu.setViewMode(mode);
+    memory.setViewMode(mode);
+    disk.setViewMode(mode);
+    viewToggle.apply(mode);
+  }
+
+  applyViewMode(readMetricView());
+  const stopViewMode = subscribeMetricView(applyViewMode);
+  signal?.addEventListener('abort', stopViewMode, { once: true });
+
+  function publishCpu(data, { stale, sampledAt, simulated }) {
+    const server = data?.server;
+    const sampled = sampledAt instanceof Date && Number.isFinite(sampledAt.getTime()) ? sampledAt : null;
+    const unavailable = Boolean(server?.cpuError) || (isRealData(data) && (!sampled || server?.status === 'error'));
+    const source = cpuMetricSource(data);
+    if (readMetric(source)) {
+      cpu.update(source, { stale, sampledAt: sampled, simulated });
+      return;
+    }
+    cpu.update(null, { stale: unavailable || stale, loading: !unavailable && !stale });
+  }
 
   function showHealth() {
     const display = paused ? 'paused' : health;
@@ -177,13 +247,12 @@ function createDeviceView({ now, index }) {
         const value = nas && key === 'region' ? 'NAS' : key === 'ip' ? server.ip || server.host : server[key];
         if (value !== null && value !== undefined) setText(node, key === 'vcpu' ? `${value} vCPU` : String(value));
       }
-      const cpuUnavailable = server.cpuError || (isRealData(data) && (!sampledAt || server.status === 'error'));
-      setText(cpu, cpuUnavailable ? 'CPU 暂不可用' : `CPU ${formatCpu(server.cpuPercent)}`);
       setText(uptime, formatUptime(server.uptimeSeconds) === '暂不可用'
         ? '运行时间暂不可用' : `已运行 ${formatUptime(server.uptimeSeconds)}`);
     }
     setText(kind, data?.type === 'nas' || data?.kind === 'nas' || server?.kind === 'nas' ? 'NAS · 设备监控' : '云端 · 设备监控');
     const stale = ['stale', 'failed', 'unavailable'].includes(health);
+    publishCpu(isRealData(data) || simulated ? data : null, { stale, sampledAt, simulated });
     memory.update(isRealData(data) || simulated ? data.metrics?.memory : null, { stale, sampledAt, simulated });
     disk.update(isRealData(data) || simulated ? data.metrics?.disk : null, { stale, sampledAt, simulated });
     const volumeData = volumeMetrics(data);
@@ -211,6 +280,7 @@ function createDeviceView({ now, index }) {
   function fail() {
     health = lastSample ? 'failed' : 'unavailable';
     if (!firstFailure) firstFailure = new Date(now());
+    cpu.update(null, { stale: true });
     memory.update(null, { stale: true });
     disk.update(null, { stale: true });
     for (const panel of volumes.values()) panel.update(null, { stale: true });
@@ -222,6 +292,7 @@ function createDeviceView({ now, index }) {
     if (!paused && lastSample && now() - lastSample.getTime() > staleAfter(lastData) && health === 'healthy') {
       health = 'stale';
       if (!firstFailure) firstFailure = new Date(lastSample.getTime() + staleAfter(lastData));
+      publishCpu(lastData, { stale: true, sampledAt: lastSample, simulated: lastData?.mode === 'mock' });
       memory.update(lastData?.metrics?.memory, { stale: true, sampledAt: lastSample });
       disk.update(lastData?.metrics?.disk, { stale: true, sampledAt: lastSample });
       for (const panel of volumes.values()) panel.update(null, { stale: true });
@@ -234,7 +305,7 @@ function createDeviceView({ now, index }) {
   return { element: page, update, fail, activity, get health() { return paused ? 'paused' : health; } };
 }
 
-export function createDashboardView({ modules, now = Date.now }) {
+export function createDashboardView({ modules, now = Date.now, signal } = {}) {
   const badge = element('span', { className: 'monitor-badge badge bg-blue-lt', text: '实时监控' });
   const notice = element('p', {
     className: 'data-notice monitoring-notice', text: '正在获取设备数据…',
@@ -250,7 +321,7 @@ export function createDashboardView({ modules, now = Date.now }) {
   if (href) links.push(externalLink(href, '打开 Codex Web', 'btn btn-primary'));
   page.append(element('div', { className: 'dashboard-links' }, links));
   let nextIndex = 1;
-  const primary = createDeviceView({ now, index: nextIndex });
+  const primary = createDeviceView({ now, index: nextIndex, signal });
   const devices = new Map([['primary', primary]]);
   list.append(primary.element);
 
@@ -288,7 +359,7 @@ export function createDashboardView({ modules, now = Date.now }) {
           devices.delete('primary');
           devices.set(key, primary);
         } else {
-          const view = createDeviceView({ now, index: ++nextIndex });
+          const view = createDeviceView({ now, index: ++nextIndex, signal });
           devices.set(key, view);
           list.append(view.element);
         }
@@ -312,7 +383,7 @@ export function createDashboardView({ modules, now = Date.now }) {
 }
 
 export function renderDashboard({ modules, signal }) {
-  const view = createDashboardView({ modules });
+  const view = createDashboardView({ modules, signal });
   createWelcomeRotation({ onTitle: (text) => setText(view.title, text), signal });
   const poller = createPoller({
     request: (requestSignal) => apiRequest('/api/dashboard', { signal: requestSignal }),

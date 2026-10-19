@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createPoller, PollTimeoutError } from '../public/assets/components/poller.js';
-import { readMetric, createMetricPanel } from '../public/assets/components/metric.js';
+import { readMetric, createMetricPanel, metricViewKey, readMetricView, setMetricViewMode } from '../public/assets/components/metric.js';
 import { createDashboardView, dashboardHealth, sampleTime, formatCpu } from '../public/assets/pages/dashboard.js';
 
 const settle = async () => { for (let index = 0; index < 12; index += 1) await Promise.resolve(); };
@@ -150,6 +150,7 @@ test('availability and reserved space come from the collector, with no false zer
   assert.equal(readMetric({ used: null, total: null, available: null }), null);
   assert.equal(readMetric({ used: 8, total: 40, error: { code: 'unavailable' } }), null);
   assert.equal(readMetric({ used: 8, total: 40 }).available, null);
+  assert.deepEqual(readMetric({ used: 20, total: 100, available: 80, unit: '%', history: [10, 140, 20, -1] }).history, [10, 20]);
   assert.equal(formatCpu(null), '采样积累中');
   assert.equal(formatCpu(0), '0%');
 });
@@ -182,6 +183,7 @@ class DomNode {
   attributes = new Map();
   className = '';
   value = '';
+  listeners = new Map();
   append(...children) { this.children.push(...children); }
   set textContent(value) { this.value = String(value); this.children = []; }
   get textContent() { return this.value + this.children.map((child) => child.textContent).join(''); }
@@ -189,6 +191,17 @@ class DomNode {
   getAttribute(name) { return this.attributes.get(name) ?? null; }
   removeAttribute(name) { this.attributes.delete(name); }
   toggleAttribute(name, enabled) { if (enabled) this.setAttribute(name, ''); else this.removeAttribute(name); }
+  addEventListener(type, callback) {
+    const list = this.listeners.get(type) ?? [];
+    list.push(callback);
+    this.listeners.set(type, list);
+  }
+  removeEventListener(type, callback) {
+    this.listeners.set(type, (this.listeners.get(type) ?? []).filter((item) => item !== callback));
+  }
+  click() {
+    for (const callback of [...(this.listeners.get('click') ?? [])]) callback({ type: 'click', currentTarget: this });
+  }
   classList = { toggle: (name, enabled) => {
     const values = new Set(this.className.split(/\s+/).filter(Boolean));
     if (enabled) values.add(name); else values.delete(name);
@@ -211,14 +224,14 @@ function withDom(callback) {
 test('the view keeps the same metric nodes, retains failed readings, removes online status, and recovers', () => withDom(() => {
   const view = createDashboardView({ modules: [], now: () => baseTime });
   view.update(sample());
-  const memoryNode = findClass(view.element, 'metric-panel');
+  const memoryNode = findPanel(view.element, '内存');
   const used = findClass(memoryNode, 'metric-used');
   const status = findClass(view.element, 'server-status');
   assert.equal(used.textContent, '0.7');
   assert.match(memoryNode.textContent, /采样积累中/);
   assert.match(status.className, /is-online/);
   view.fail();
-  assert.equal(findClass(view.element, 'metric-panel'), memoryNode);
+  assert.equal(findPanel(view.element, '内存'), memoryNode);
   assert.equal(used.textContent, '0.7');
   assert.match(memoryNode.textContent, /上次读数/);
   assert.doesNotMatch(status.className, /is-online/);
@@ -242,6 +255,15 @@ test('the first failed sample shows unavailable values, no previous-reading labe
   assert.match(panel.element.textContent, /示例趋势/);
   assert.doesNotMatch(panel.element.textContent, /真实采样/);
 }));
+
+function findPanel(node, title) {
+  return findClasses(node, 'metric-panel').find((panel) => findClass(panel, 'metric-title')?.textContent === title);
+}
+
+function findButtons(node, text) {
+  const matches = node.className.split(/\s+/).includes('metric-view-option') && node.textContent === text ? [node] : [];
+  return matches.concat(node.children.flatMap((child) => findButtons(child, text)));
+}
 
 function findClasses(node, name) {
   const result = node.className.split(/\s+/).includes(name) ? [node] : [];
@@ -332,4 +354,113 @@ test('remote cloud cards keep cloud facts and waiting or stale states beside NAS
   assert.match(cards[2].textContent, /数据已过期/);
   assert.match(findClass(cards[0], 'server-status').className, /is-online/);
   assert.match(findClass(cards[1], 'server-status').className, /is-online/);
+}));
+
+function memoryStorage() {
+  const values = new Map();
+  return {
+    getItem(key) { return values.has(key) ? values.get(key) : null; },
+    setItem(key, value) { values.set(key, String(value)); },
+    removeItem(key) { values.delete(key); },
+  };
+}
+
+test('device cards default to waveforms, toggle to progress bars, and share one stored preference', () => withDom(() => {
+  const previous = globalThis.localStorage;
+  const storage = memoryStorage();
+  globalThis.localStorage = storage;
+  setMetricViewMode('wave', storage);
+  try {
+    storage.setItem(metricViewKey, 'later');
+    assert.equal(readMetricView(storage), 'wave');
+    storage.removeItem(metricViewKey);
+
+    const short = createMetricPanel('CPU', { metric: 'cpu', pendingLabel: '采样积累中', unavailableLabel: 'CPU 暂不可用' });
+    short.setViewMode('wave');
+    short.update({ used: 10, total: 100, available: 90, unit: '%', history: [10] });
+    assert.equal(findClass(short.element, 'metric-sparkline').getAttribute('hidden'), '');
+    assert.match(short.element.textContent, /采样积累中/);
+    short.update({ used: 12, total: 100, available: 88, unit: '%', history: [10, 12] });
+    assert.equal(findClass(short.element, 'metric-sparkline').getAttribute('hidden'), null);
+    assert.match(findClass(short.element, 'metric-sparkline').children[0].getAttribute('points'), /,/);
+
+    const payload = sample();
+    payload.server.cpuPercent = 22;
+    payload.metrics.cpu = { used: 22, total: 100, available: 78, unit: '%', history: [10, 16, 22] };
+    payload.metrics.memory.history = [0.4, 0.5, 0.7];
+    payload.metrics.disk.history = [8, 8.2, 8.4];
+    const view = createDashboardView({ modules: [], now: () => baseTime });
+    view.update(payload);
+    const cpuPanel = findPanel(view.element, 'CPU');
+    const memoryPanel = findPanel(view.element, '内存');
+    const diskPanel = findPanel(view.element, '硬盘');
+    assert.equal(cpuPanel.getAttribute('data-view'), 'wave');
+    assert.equal(findClass(cpuPanel, 'metric-progress').getAttribute('hidden'), '');
+    assert.equal(findClass(cpuPanel, 'metric-chart').getAttribute('hidden'), null);
+    assert.match(findClass(cpuPanel, 'metric-used').textContent, /22%/);
+    assert.match(findClass(cpuPanel, 'metric-sparkline').children[0].getAttribute('points'), /,/);
+    assert.equal(findClass(memoryPanel, 'metric-progress').getAttribute('hidden'), '');
+    assert.match(findClass(memoryPanel, 'metric-sparkline').children[0].getAttribute('points'), /,/);
+    assert.match(memoryPanel.textContent, /最近 3 次真实采样/);
+    assert.equal(findButtons(view.element, '波形')[0].getAttribute('aria-pressed'), 'true');
+    assert.equal(findButtons(view.element, '进度')[0].getAttribute('aria-pressed'), 'false');
+
+    view.update({ ...payload, stale: true, server: { ...payload.server, status: 'offline' } });
+    assert.equal(cpuPanel.getAttribute('data-stale'), '');
+    assert.equal(memoryPanel.getAttribute('data-stale'), '');
+    assert.match(findClass(cpuPanel, 'metric-used').textContent, /22%/);
+    assert.match(findClass(memoryPanel, 'metric-used').textContent, /0\.7/);
+    assert.match(findClass(cpuPanel, 'metric-sparkline').children[0].getAttribute('points'), /,/);
+    assert.match(cpuPanel.textContent, /上次读数/);
+
+    view.update(payload);
+    assert.equal(cpuPanel.getAttribute('data-stale'), null);
+    findButtons(view.element, '进度')[0].click();
+    assert.equal(storage.getItem(metricViewKey), 'bar');
+    assert.equal(cpuPanel.getAttribute('data-view'), 'bar');
+    assert.equal(findClass(cpuPanel, 'metric-chart').getAttribute('hidden'), '');
+    assert.equal(findClass(cpuPanel, 'metric-progress').getAttribute('hidden'), null);
+    assert.equal(findClass(memoryPanel, 'metric-chart').getAttribute('hidden'), '');
+    assert.equal(findClass(diskPanel, 'metric-chart').getAttribute('hidden'), '');
+    assert.equal(findClass(diskPanel, 'metric-progress').getAttribute('hidden'), null);
+    assert.equal(findButtons(view.element, '波形')[0].getAttribute('aria-pressed'), 'false');
+    assert.equal(findButtons(view.element, '进度')[0].getAttribute('aria-pressed'), 'true');
+
+    const restored = createDashboardView({ modules: [], now: () => baseTime });
+    restored.update(payload);
+    assert.equal(findPanel(restored.element, 'CPU').getAttribute('data-view'), 'bar');
+    assert.equal(findButtons(restored.element, '进度')[0].getAttribute('aria-pressed'), 'true');
+
+    const nas = {
+      ...sample(), id: 'nas', type: 'nas', mode: 'push',
+      server: { ...sample().server, name: 'NAS', host: 'nas.local', cpuPercent: 4 },
+      metrics: {
+        cpu: { used: 4, total: 100, available: 96, unit: '%', history: [3, 4] },
+        memory: { used: 5, total: 8, available: 3, history: [4, 5] },
+        disk: {
+          used: 300, total: 1000, available: 680, reserved: 20, history: [280, 300],
+          volumes: [{ path: '/vol1', used: 200, total: 700, available: 480, reserved: 20 }],
+        },
+      },
+    };
+    view.update({ mode: 'live', devices: [{ ...payload, id: 'cloud' }, nas] });
+    const cards = findClasses(view.element, 'device-card');
+    assert.equal(cards.length, 2);
+    assert.equal(findPanel(cards[1], 'CPU').getAttribute('data-view'), 'bar');
+    const volume = findClasses(cards[1], 'device-volumes')[0].children[0];
+    assert.equal(findClass(volume, 'metric-chart').getAttribute('hidden'), '');
+    assert.equal(findClass(volume, 'metric-progress').getAttribute('hidden'), null);
+    findButtons(restored.element, '波形')[0].click();
+    assert.equal(storage.getItem(metricViewKey), 'wave');
+    assert.equal(findPanel(cards[0], '内存').getAttribute('data-view'), 'wave');
+    assert.equal(findPanel(cards[1], '硬盘').getAttribute('data-view'), 'wave');
+    assert.equal(findClass(volume, 'metric-chart').getAttribute('hidden'), '');
+    assert.equal(findClass(volume, 'metric-progress').getAttribute('hidden'), null);
+    assert.equal(findButtons(cards[0], '波形')[0].getAttribute('aria-pressed'), 'true');
+    assert.equal(findButtons(cards[1], '波形')[0].getAttribute('aria-pressed'), 'true');
+  } finally {
+    setMetricViewMode('wave', storage);
+    if (previous === undefined) delete globalThis.localStorage;
+    else globalThis.localStorage = previous;
+  }
 }));

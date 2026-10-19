@@ -3,7 +3,48 @@ import { element } from './dom.js?v=1.4.0';
 const namespace = 'http://www.w3.org/2000/svg';
 const numberFormat = new Intl.NumberFormat('zh-CN', { maximumFractionDigits: 2 });
 
+export const metricViewKey = 'personal-space.metric-view.v1';
+
+const subscribers = new Set();
+let memoryMode = 'wave';
+
 const isFiniteNumber = (value) => typeof value === 'number' && Number.isFinite(value);
+
+function metricStorage(storage) {
+  if (storage !== undefined) return storage;
+  try {
+    const store = globalThis.localStorage;
+    if (!store || typeof store.getItem !== 'function') return null;
+    return store;
+  } catch {
+    return null;
+  }
+}
+
+export function readMetricView(storage) {
+  const store = metricStorage(storage);
+  if (!store) return memoryMode === 'bar' ? 'bar' : 'wave';
+  try {
+    const value = store.getItem(metricViewKey);
+    if (value === 'bar' || value === 'wave') return value;
+    return 'wave';
+  } catch {
+    return memoryMode === 'bar' ? 'bar' : 'wave';
+  }
+}
+
+export function setMetricViewMode(mode, storage) {
+  const next = mode === 'bar' ? 'bar' : 'wave';
+  memoryMode = next;
+  try { metricStorage(storage)?.setItem(metricViewKey, next); } catch { /* Private browsing can disable storage. */ }
+  for (const listener of subscribers) listener(next);
+  return next;
+}
+
+export function subscribeMetricView(listener) {
+  subscribers.add(listener);
+  return () => subscribers.delete(listener);
+}
 
 export function readMetric(data) {
   if (!data || data.error || !isFiniteNumber(data.total) || data.total <= 0
@@ -30,7 +71,12 @@ function setText(node, value) {
   if (node.textContent !== value) node.textContent = value;
 }
 
-export function createMetricPanel(label, { showHistory = true } = {}) {
+export function createMetricPanel(label, {
+  showHistory = true,
+  metric = '',
+  pendingLabel = '正在获取数据',
+  unavailableLabel = '数据暂不可用',
+} = {}) {
   const used = element('span', { className: 'metric-used', text: '—' });
   const total = element('span', { className: 'metric-total' });
   const progress = element('progress', { className: 'metric-progress', attributes: { max: 1, value: 0 } });
@@ -48,7 +94,11 @@ export function createMetricPanel(label, { showHistory = true } = {}) {
   const line = document.createElementNS(namespace, 'polyline');
   line.setAttribute('vector-effect', 'non-scaling-stroke');
   svg.append(line);
-  const section = element('section', { className: 'metric-panel', attributes: { 'aria-label': `${label}使用情况` } }, [
+  const chart = element('div', { className: 'metric-chart' }, [svg, chartCaption]);
+  const section = element('section', {
+    className: 'metric-panel',
+    attributes: { 'aria-label': `${label}使用情况`, ...(metric ? { 'data-metric': metric } : {}) },
+  }, [
     element('div', { className: 'metric-title-row' }, [element('h3', { className: 'metric-title', text: label }), readingNote]),
     element('p', { className: 'metric-value' }, [
       used, total,
@@ -56,11 +106,19 @@ export function createMetricPanel(label, { showHistory = true } = {}) {
     progress,
     element('div', { className: 'metric-details' }, [percentage, available]),
     capacityNote,
-    element('div', { className: 'metric-chart', attributes: showHistory ? {} : { hidden: '' } }, [svg, chartCaption]),
+    chart,
   ]);
   let lastReading = null;
   let lastReadingAt = null;
   let lastReadingSimulated = false;
+  let mode = readMetricView();
+
+  function syncChrome() {
+    const wave = showHistory && mode === 'wave';
+    progress.toggleAttribute('hidden', wave);
+    chart.toggleAttribute('hidden', !wave);
+    section.setAttribute('data-view', mode);
+  }
 
   function update(data, { stale = false, retainLast = true, loading = false, sampledAt, simulated = false } = {}) {
     const reading = readMetric(data);
@@ -82,7 +140,7 @@ export function createMetricPanel(label, { showHistory = true } = {}) {
     if (!shown) {
       setText(used, '—');
       setText(total, '');
-      setText(percentage, loading ? '正在获取数据' : '数据暂不可用');
+      setText(percentage, loading ? pendingLabel : unavailableLabel);
       setText(available, '');
       setText(capacityNote, '');
       progress.setAttribute('value', '0');
@@ -90,21 +148,27 @@ export function createMetricPanel(label, { showHistory = true } = {}) {
       progress.setAttribute('aria-label', `${label}数据暂不可用`);
       svg.setAttribute('hidden', '');
       setText(chartCaption, loading ? '等待首次采样' : '暂无采样数据');
+      syncChrome();
       return;
     }
 
-    setText(used, numberFormat.format(shown.used));
-    setText(total, `/ ${numberFormat.format(shown.total)} ${shown.unit}`);
-    setText(percentage, `${shown.percentage}% 已使用`);
-    setText(available, shown.available === null
-      ? '可用容量暂无数据'
-      : `可用 ${numberFormat.format(shown.available)} ${shown.unit}`);
-    setText(capacityNote, shown.capacityDifference > 0.005
+    const percent = shown.unit === '%';
+    setText(used, percent ? `${numberFormat.format(shown.used)}%` : numberFormat.format(shown.used));
+    setText(total, percent ? '' : `/ ${numberFormat.format(shown.total)} ${shown.unit}`);
+    setText(percentage, percent ? '占用' : `${shown.percentage}% 已使用`);
+    setText(available, percent
+      ? (shown.available === null ? '' : `空闲 ${numberFormat.format(shown.available)}%`)
+      : (shown.available === null
+        ? '可用容量暂无数据'
+        : `可用 ${numberFormat.format(shown.available)} ${shown.unit}`));
+    setText(capacityNote, !percent && shown.capacityDifference > 0.005
       ? `${numberFormat.format(shown.capacityDifference)} ${shown.unit} 为系统保留或不可用容量。`
       : '');
     progress.setAttribute('max', String(shown.total));
     progress.setAttribute('value', String(shown.used));
-    progress.setAttribute('aria-label', `${label}已使用 ${numberFormat.format(shown.used)} ${shown.unit}，共 ${numberFormat.format(shown.total)} ${shown.unit}${old ? '，上次读数' : ''}`);
+    progress.setAttribute('aria-label', percent
+      ? `${label} ${numberFormat.format(shown.used)}%${old ? '，上次读数' : ''}`
+      : `${label}已使用 ${numberFormat.format(shown.used)} ${shown.unit}，共 ${numberFormat.format(shown.total)} ${shown.unit}${old ? '，上次读数' : ''}`);
     svg.toggleAttribute('hidden', shown.history.length < 2);
     svg.setAttribute('aria-label', `${label}${lastReadingSimulated ? '示例趋势' : '真实采样变化'}`);
     if (shown.history.length >= 2) {
@@ -117,10 +181,22 @@ export function createMetricPanel(label, { showHistory = true } = {}) {
     }
     setText(chartCaption, lastReadingSimulated ? '示例趋势'
       : shown.history.length < 2 ? '采样积累中' : `最近 ${shown.history.length} 次真实采样`);
+    syncChrome();
+  }
+
+  function setViewMode(next) {
+    mode = next === 'bar' ? 'bar' : 'wave';
+    syncChrome();
   }
 
   update(null, { loading: true });
-  return { element: section, update, get hasReading() { return Boolean(lastReading); } };
+  return {
+    element: section,
+    update,
+    setViewMode,
+    get hasReading() { return Boolean(lastReading); },
+    get viewMode() { return mode; },
+  };
 }
 
 export function metricPanel(label, data) {

@@ -128,9 +128,14 @@ test('live provider merges concurrent sampling and caps history at the configure
   release();
   assert.strictEqual(await first, await second);
   assert.equal(calls, 1);
+  assert.deepEqual((await provider.getDashboard()).metrics.cpu.history, []);
 
   const historyProvider = new LiveDashboardProvider(config, {
-    collector: async () => sample(config, ++calls),
+    collector: async () => {
+      const value = ++calls;
+      const cpuPercent = value === 6 ? 140 : value * 10;
+      return sample(config, value, { cpuPercent });
+    },
     historyLimit: 3,
   });
   for (let index = 0; index < 5; index += 1) {
@@ -139,6 +144,10 @@ test('live provider merges concurrent sampling and caps history at the configure
   const dashboard = await historyProvider.getDashboard();
   assert.deepEqual(dashboard.metrics.memory.history, [4, 5, 6]);
   assert.deepEqual(dashboard.metrics.disk.history, [8, 10, 12]);
+  assert.deepEqual(dashboard.metrics.cpu.history, [30, 40, 50]);
+  assert.equal(dashboard.metrics.cpu.used, null);
+  assert.equal(dashboard.metrics.cpu.total, null);
+  assert.equal(dashboard.server.cpuPercent, null);
 });
 
 test('live provider reports collection failures without falling back to mock data', async t => {
@@ -157,6 +166,8 @@ test('live provider reports collection failures without falling back to mock dat
   assert.equal(dashboard.server.status, 'error');
   assert.equal(dashboard.metrics.memory.used, null);
   assert.equal(dashboard.metrics.memory.error.code, 'proc_read_failed');
+  assert.deepEqual(dashboard.metrics.cpu.history, []);
+  assert.equal(dashboard.metrics.cpu.used, null);
 });
 
 test('live provider marks old successful samples stale after a later failure', async t => {
@@ -165,7 +176,7 @@ test('live provider marks old successful samples stale after a later failure', a
   const provider = new LiveDashboardProvider(config, {
     collector: async () => {
       if (fail) throw Object.assign(new Error('statfs failed'), { code: 'statfs_failed' });
-      return sample(config, 1);
+      return sample(config, 1, { cpuPercent: 12.5 });
     },
   });
   const fresh = await provider.sample();
@@ -177,6 +188,9 @@ test('live provider marks old successful samples stale after a later failure', a
   assert.equal(stale.error.code, 'statfs_failed');
   assert.equal(stale.server.status, 'stale');
   assert.deepEqual(stale.metrics.memory.history, [1]);
+  assert.deepEqual(stale.metrics.cpu.history, [12.5]);
+  assert.equal(stale.metrics.cpu.used, 12.5);
+  assert.equal(stale.server.cpuPercent, 12.5);
 });
 
 test('application dashboard uses injected live provider and stops it during close', async () => {

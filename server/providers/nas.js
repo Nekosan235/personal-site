@@ -46,6 +46,31 @@ function metricWithHistory(metric, history, label) {
   };
 }
 
+function normalizeCpuPercent(value) {
+  const parsed = nullableNumber(value);
+  if (parsed == null) return null;
+  const rounded = round(parsed, 1);
+  if (rounded < 0 || rounded > 100) return null;
+  return rounded;
+}
+
+function cpuWithHistory(percent, history) {
+  const valid = typeof percent === 'number' && percent >= 0 && percent <= 100;
+  return {
+    used: valid ? percent : null,
+    total: valid ? 100 : null,
+    available: valid ? round(Math.max(0, 100 - percent), 1) : null,
+    unit: '%',
+    history: [...history],
+    historyLabel: 'cpu percent',
+    error: null,
+  };
+}
+
+function emptyCpuMetric() {
+  return cpuWithHistory(null, []);
+}
+
 function normalizeLoadAverage(value) {
   if (!Array.isArray(value)) return null;
   return value.slice(0, 3).map((item) => round(Number(item), 2));
@@ -157,6 +182,7 @@ export class NasMonitorStore {
       if (!device?.id || this.devices.has(device.id)) continue;
       this.devices.set(device.id, {
         meta: device,
+        cpuHistory: [],
         memoryHistory: [],
         diskHistory: [],
         lastReport: null,
@@ -295,7 +321,7 @@ export class NasMonitorStore {
         vcpu: nullableNumber(report?.server?.vcpu),
         status: 'online',
         uptimeSeconds: nullableNumber(report?.server?.uptimeSeconds) == null ? null : Math.floor(nullableNumber(report.server.uptimeSeconds)),
-        cpuPercent: nullableNumber(report?.server?.cpuPercent) == null ? null : round(nullableNumber(report.server.cpuPercent), 1),
+        cpuPercent: normalizeCpuPercent(report?.server?.cpuPercent),
         loadAverage: normalizeLoadAverage(report?.server?.loadAverage),
       },
       metrics: {
@@ -318,6 +344,11 @@ export class NasMonitorStore {
   }
 
   pushHistory(state, report) {
+    const cpu = report.server.cpuPercent;
+    if (typeof cpu === 'number' && cpu >= 0 && cpu <= 100) {
+      state.cpuHistory.push(cpu);
+      while (state.cpuHistory.length > this.historyLimit) state.cpuHistory.shift();
+    }
     if (report.metrics.memory.used != null && report.metrics.memory.error == null) {
       state.memoryHistory.push(report.metrics.memory.used);
       while (state.memoryHistory.length > this.historyLimit) state.memoryHistory.shift();
@@ -357,6 +388,7 @@ export class NasMonitorStore {
         status: stale ? 'offline' : 'online',
       },
       metrics: {
+        cpu: cpuWithHistory(state.lastReport.server.cpuPercent, state.cpuHistory),
         memory: metricWithHistory(state.lastReport.metrics.memory, state.memoryHistory, 'memory used GiB'),
         disk: {
           ...metricWithHistory(state.lastReport.metrics.disk, state.diskHistory, 'disk used GiB'),
@@ -403,6 +435,7 @@ export class NasMonitorStore {
         loadAverage: null,
       },
       metrics: {
+        cpu: emptyCpuMetric(),
         memory: {
           used: null,
           total: null,
