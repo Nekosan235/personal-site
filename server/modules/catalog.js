@@ -11,6 +11,7 @@ export function getModules(config) {
     { id: 'advantech-elevator', path: '/work/advantech-elevator', title: '基于 AIoT 的电梯智能监测系统', nav: false, status: 'ready', group: 'work' },
     { id: 'ican-elevator', path: '/work/ican-elevator', title: '基于 AI 的非接触式电梯控制系统', nav: false, status: 'ready', group: 'work' },
     { id: 'tools', path: '/tools', title: '工具箱', nav: true, status: 'ready' },
+    { id: 'terminal', path: '/terminal', title: '终端', nav: true, status: 'ready' },
     { id: 'agents', path: '/agents', title: '我的 Agent', nav: true, status: 'planned' },
     {
       id: 'remove-background',
