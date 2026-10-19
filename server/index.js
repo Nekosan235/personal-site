@@ -16,6 +16,7 @@ import { createMediaHandler } from './media/handler.js';
 import { getDashboardMock } from './providers/mock.js';
 import { createLiveDashboardProvider } from './providers/live.js';
 import { NasMonitorStore, cloudDashboardDevice } from './providers/nas.js';
+import { attachTerminalGateway } from './terminal/gateway.js';
 
 const PUBLIC_ASSETS = new Set([
   '/assets/login.js',
@@ -29,7 +30,7 @@ const PUBLIC_ASSETS = new Set([
   '/assets/components/solar.js',
   '/assets/components/theme.js',
 ]);
-const PROTECTED_ASSET_PREFIXES = ['/assets/components/', '/assets/pages/', '/assets/portfolio/'];
+const PROTECTED_ASSET_PREFIXES = ['/assets/components/', '/assets/pages/', '/assets/portfolio/', '/assets/vendor/xterm/'];
 const PROTECTED_ASSETS = new Set(['/assets/app.js']);
 
 const MIME_TYPES = new Map([
@@ -407,6 +408,18 @@ export function createApplication(options = {}) {
     return sendJson(res, 200, { ok: true }, { 'Set-Cookie': sessionCookies });
   }
 
+  let terminal;
+  async function readLocalServer() {
+    try {
+      const dashboard = dashboardProvider
+        ? await dashboardProvider.getDashboard()
+        : getDashboardMock(new Date(now()));
+      return dashboard?.server ?? null;
+    } catch {
+      return null;
+    }
+  }
+
   const server = createServer(async (req, res) => {
     try {
       const url = new URL(req.url ?? '/', 'http://internal');
@@ -465,6 +478,14 @@ export function createApplication(options = {}) {
           return sendJson(res, 200, { modules: getModules(config) });
         }
 
+        if (req.method === 'GET' && pathname === '/api/terminal/servers') {
+          return sendJson(res, 200, { servers: await terminal.list() });
+        }
+
+        if (pathname === '/api/terminal/session') {
+          return sendJson(res, 426, { error: 'upgrade required' }, { Upgrade: 'websocket' });
+        }
+
         if (pathname.startsWith('/api/media/')) {
           await media.handle(req, res, { pathname, url, session: apiSession, readJson });
           return;
@@ -490,11 +511,22 @@ export function createApplication(options = {}) {
     }
   });
 
+  terminal = attachTerminalGateway(server, {
+    config,
+    getSession: (req) => getSession(req, store),
+    isAllowedOrigin: (req) => isAllowedOrigin(req, config),
+    localServer: readLocalServer,
+    remoteDashboards: () => nasMonitorStore.getDashboards(),
+    dial: options.sshDial,
+    limits: options.terminalLimits,
+  });
+
   const originalClose = server.close.bind(server);
   server.config = config;
   server.sessionStore = store;
   server.nasMonitorStore = nasMonitorStore;
   server.close = (callback) => {
+    terminal.close();
     return originalClose((error) => {
       dashboardProvider?.stop?.();
       store.close();
