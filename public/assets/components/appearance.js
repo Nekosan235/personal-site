@@ -57,7 +57,7 @@ export function createAppearanceSettings(theme) {
   const zone = element('p', { className: 'appearance-zone' });
   const sun = element('p', { className: 'appearance-sun', attributes: { 'aria-live': 'polite' } });
   const referenceNote = element('p', { className: 'appearance-reference-note' });
-  const form = element('form', { className: 'appearance-form' }, [
+  const form = element('form', { className: 'appearance-form', attributes: { method: 'dialog' } }, [
     modeField,
     element('div', { className: 'appearance-location-field form-field' }, [
       element('label', { className: 'form-label', text: '日出日落参考位置', attributes: { for: 'appearance-location' } }), location,

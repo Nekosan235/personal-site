@@ -56,6 +56,81 @@ test('real login template exposes only self-hosted assets and retains CSRF and l
   }
 });
 
+test('login form is a same-origin password form browsers can save', async (t) => {
+  const html = await readFile(join(publicDir, 'login.html'), 'utf8');
+  const formStart = html.indexOf('<form id="login-form"');
+  const form = html.slice(formStart, html.indexOf('</form>', formStart) + '</form>'.length);
+  assert.match(form, /method="post"/);
+  assert.match(form, /action="\/api\/auth\/login"/);
+  assert.match(form, /autocomplete="on"/);
+  assert.doesNotMatch(form, /autocomplete="off"/i);
+  assert.doesNotMatch(form, /https?:\/\//);
+  const usernameField = form.match(/<input\b[^>]*\bid="username"[^>]*>/)[0];
+  const passwordField = form.match(/<input\b[^>]*\bid="password"[^>]*>/)[0];
+  assert.match(usernameField, /\bname="username"/);
+  assert.match(usernameField, /\btype="text"/);
+  assert.match(usernameField, /\bautocomplete="username"/);
+  assert.match(passwordField, /\bname="password"/);
+  assert.match(passwordField, /\btype="password"/);
+  assert.match(passwordField, /\bautocomplete="current-password"/);
+  assert.ok(form.indexOf('id="username"') < form.indexOf('id="password"'));
+  assert.ok(form.indexOf('id="password"') < form.indexOf('name="csrf_token"'));
+  assert.match(form, /<button\b[^>]*\bid="login-submit"[^>]*\btype="submit"/);
+  assert.match(form, /<input\b[^>]*\bname="csrf_token"[^>]*\btype="hidden"/);
+  const script = await readFile(join(publicDir, 'assets/login.js'), 'utf8');
+  assert.doesNotMatch(script, /preventDefault|fetch\(|location\.assign/);
+  const appearance = await readFile(join(publicDir, 'assets/components/appearance.js'), 'utf8');
+  assert.match(appearance, /method: 'dialog'/);
+
+  const app = await fixture(t);
+  const page = await app.request('/login');
+  const served = await page.text();
+  assert.equal(page.status, 200);
+  assert.doesNotMatch(served, /\{\{[A-Z0-9_]+\}\}/);
+  assert.match(served, /method="post"/);
+  assert.match(served, /action="\/api\/auth\/login"/);
+  assert.match(served, /autocomplete="username"/);
+  assert.match(served, /autocomplete="current-password"/);
+  assert.doesNotMatch(served, /id="username"[^>]*\bvalue=/);
+  assert.match(served, /role="alert" hidden><\/p>/);
+  assert.doesNotMatch(served, /autocomplete="off"/i);
+  const csrf = served.match(/name="csrf-token" content="([^"]+)"/)[1];
+  assert.match(served, new RegExp(`name="csrf_token"[^>]*value="${csrf}"`));
+
+  const prelogin = page.headers.getSetCookie().map((value) => value.split(';')[0]).join('; ');
+  const failed = await app.request('/api/auth/login', {
+    method: 'POST',
+    headers: { Origin: origin, Cookie: prelogin, 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'text/html' },
+    body: new URLSearchParams({
+      username: 'ui-test-user"><script>',
+      password: 'not-the-saved-password',
+      csrf_token: csrf,
+    }).toString(),
+  });
+  assert.equal(failed.status, 401);
+  assert.equal(failed.headers.get('location'), null);
+  const failedHtml = await failed.text();
+  assert.match(failedHtml, /登录未成功，请检查账号和密码后重试。/);
+  assert.match(failedHtml, /value="ui-test-user&quot;&gt;&lt;script&gt;"/);
+  assert.doesNotMatch(failedHtml, /not-the-saved-password/);
+  assert.doesNotMatch(failedHtml, /<script(?![^>]*\bsrc=)/);
+  assert.match(failedHtml, /autocomplete="current-password"/);
+  assert.equal(failed.headers.getSetCookie().some((value) => value.startsWith('ps_session=') && !/Max-Age=0/.test(value)), false);
+  const retryCookie = failed.headers.getSetCookie().map((value) => value.split(';')[0]).join('; ');
+  const retryCsrf = failedHtml.match(/name="csrf-token" content="([^"]+)"/)[1];
+  const ok = await app.request('/api/auth/login', {
+    method: 'POST',
+    headers: { Origin: origin, Cookie: retryCookie, 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ username: 'ui-test-user', password, csrf_token: retryCsrf }).toString(),
+  });
+  assert.equal(ok.status, 303);
+  assert.equal(ok.headers.get('location'), '/');
+  const sessionCookie = ok.headers.getSetCookie().filter((value) => !/Max-Age=0/.test(value)).map((value) => value.split(';')[0]).join('; ');
+  const home = await app.request('/', { headers: { Cookie: sessionCookie } });
+  assert.equal(home.status, 200);
+  assert.match(await home.text(), /class="page-wrapper"/);
+});
+
 test('pinned genuine Tabler CSS is public without opening the whole vendor directory', async (t) => {
   const app = await fixture(t);
   const response = await app.request('/assets/vendor/tabler/tabler.min.css?v=1.6.1');

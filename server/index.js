@@ -67,8 +67,33 @@ function sendJson(res, status, payload, headers = {}) {
   send(res, status, JSON.stringify(payload), { 'Content-Type': 'application/json; charset=utf-8', ...headers });
 }
 
-function redirect(res, location) {
-  send(res, 303, '', { Location: location });
+function redirect(res, location, headers = {}) {
+  send(res, 303, '', { ...headers, Location: location });
+}
+
+function escapeHtml(value) {
+  return String(value).replace(/[&<>"']/g, (char) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;',
+  }[char]));
+}
+
+function echoUsername(value) {
+  return escapeHtml(String(value).replace(/[\u0000-\u001f\u007f]/g, '').slice(0, 128));
+}
+
+function fillTemplate(content, replacements) {
+  return content.replace(/\{\{[A-Z0-9_]+\}\}/g, (token) => (
+    Object.prototype.hasOwnProperty.call(replacements, token) ? replacements[token] : token
+  ));
+}
+
+function isFormLogin(req) {
+  const type = String(req.headers['content-type'] ?? '').split(';')[0].trim().toLowerCase();
+  return type === 'application/x-www-form-urlencoded';
 }
 
 function getClientIp(req) {
@@ -140,10 +165,7 @@ async function serveFile(res, publicDir, pathname, replacements = null) {
 
   const type = MIME_TYPES.get(extname(fullPath).toLowerCase()) ?? 'application/octet-stream';
   if (replacements) {
-    let content = await readFile(fullPath, 'utf8');
-    for (const [key, value] of Object.entries(replacements)) {
-      content = content.replaceAll(key, value);
-    }
+    const content = fillTemplate(await readFile(fullPath, 'utf8'), replacements);
     return send(res, 200, content, { 'Content-Type': type });
   }
 
@@ -159,7 +181,7 @@ async function serveFile(res, publicDir, pathname, replacements = null) {
   stream.pipe(res);
 }
 
-async function serveTemplate(res, publicDir, pathname, replacements, headers = {}) {
+async function serveTemplate(res, publicDir, pathname, replacements, headers = {}, status = 200) {
   const fullPath = resolvePublicPath(publicDir, pathname);
   if (!fullPath) return send(res, 404, 'Not found', headers);
   let content;
@@ -168,10 +190,8 @@ async function serveTemplate(res, publicDir, pathname, replacements, headers = {
   } catch {
     return send(res, 404, 'Not found', headers);
   }
-  for (const [key, value] of Object.entries(replacements)) {
-    content = content.replaceAll(key, value);
-  }
-  return send(res, 200, content, { 'Content-Type': MIME_TYPES.get(extname(fullPath)) ?? 'text/html; charset=utf-8', ...headers });
+  content = fillTemplate(content, replacements);
+  return send(res, status, content, { 'Content-Type': MIME_TYPES.get(extname(fullPath)) ?? 'text/html; charset=utf-8', ...headers });
 }
 
 function readBody(req, maxBytes) {
@@ -261,6 +281,24 @@ export function createApplication(options = {}) {
   });
   dashboardProvider?.start?.();
 
+  function renderLogin(res, { status = 200, username = '', showError = false, headers = {} } = {}) {
+    const csrf = randomBytes(24).toString('base64url');
+    const token = createPreloginToken(
+      { csrf, expires: now() + config.loginTtlMs },
+      config.authSecret || 'dev-insecure-secret',
+    );
+    const safeUsername = echoUsername(username);
+    return serveTemplate(res, publicDir, '/login.html', {
+      '{{CSRF_TOKEN}}': csrf,
+      '{{USERNAME_ATTR}}': safeUsername ? ` value="${safeUsername}"` : '',
+      '{{LOGIN_ERROR_ATTR}}': showError ? '' : ' hidden',
+      '{{LOGIN_ERROR}}': showError ? '登录未成功，请检查账号和密码后重试。' : '',
+    }, {
+      ...headers,
+      'Set-Cookie': preloginCookie(token, config),
+    }, status);
+  }
+
   async function handleMonitorReport(req, res) {
     let raw;
     try {
@@ -299,15 +337,7 @@ export function createApplication(options = {}) {
       const pathname = url.pathname;
 
       if (req.method === 'GET' && pathname === '/login') {
-        const csrf = randomBytes(24).toString('base64url');
-        const token = createPreloginToken({ csrf, expires: now() + config.loginTtlMs }, config.authSecret || 'dev-insecure-secret');
-        return await serveTemplate(
-          res,
-          publicDir,
-          '/login.html',
-          { '{{CSRF_TOKEN}}': csrf },
-          { 'Set-Cookie': preloginCookie(token, config) },
-        );
+        return await renderLogin(res);
       }
 
       if (req.method === 'GET' && isPublicAsset(pathname)) {
@@ -334,49 +364,89 @@ export function createApplication(options = {}) {
         if (req.method === 'POST' && !isAllowedOrigin(req, config)) return forbidden(res);
 
         if (req.method === 'POST' && pathname === '/api/auth/login') {
+          const form = isFormLogin(req);
           const cookies = parseCookies(req.headers.cookie);
           const prelogin = verifyPreloginToken(
             cookies.get(COOKIE_NAMES.prelogin),
             config.authSecret || 'dev-insecure-secret',
             now(),
           );
-          if (!prelogin || req.headers['x-csrf-token'] !== prelogin.csrf) return forbidden(res);
+          const csrfHeader = req.headers['x-csrf-token'];
+          if (!form && (typeof csrfHeader !== 'string' || !prelogin || csrfHeader !== prelogin.csrf)) {
+            return forbidden(res);
+          }
 
           const ip = getClientIp(req);
-          const rate = limiter.check(ip, now());
-          if (!rate.allowed) return sendJson(res, rate.statusCode ?? 401, { error: 'invalid credentials' });
+          if (!form) {
+            const rate = limiter.check(ip, now());
+            if (!rate.allowed) return sendJson(res, rate.statusCode ?? 401, { error: 'invalid credentials' });
+          }
 
-          let body;
+          let raw;
           try {
-            body = await readJson(req, config.maxBodyBytes);
+            raw = await readBody(req, config.maxBodyBytes);
           } catch (error) {
             if (error.closeConnection) res.shouldKeepAlive = false;
-            return sendJson(
-              res,
-              error.statusCode ?? 400,
-              { error: 'bad request' },
-              error.closeConnection ? { Connection: 'close' } : {},
-            );
+            const status = error.statusCode ?? 400;
+            const extra = error.closeConnection ? { Connection: 'close' } : {};
+            if (form) return await renderLogin(res, { status, showError: true, headers: extra });
+            return sendJson(res, status, { error: 'bad request' }, extra);
           }
 
-          const usernameOk = body.username === config.authUsername;
+          let username = '';
+          let password = '';
+          if (form) {
+            const params = new URLSearchParams(raw);
+            username = params.get('username') ?? '';
+            password = params.get('password') ?? '';
+            const csrf = params.get('csrf_token') ?? '';
+            if (!prelogin || csrf !== prelogin.csrf) {
+              return await renderLogin(res, { status: 403, username, showError: true });
+            }
+            const rate = limiter.check(ip, now());
+            if (!rate.allowed) {
+              return await renderLogin(res, { status: rate.statusCode ?? 401, username, showError: true });
+            }
+          } else {
+            let body;
+            try {
+              body = raw ? JSON.parse(raw) : {};
+            } catch {
+              return sendJson(res, 400, { error: 'bad request' });
+            }
+            username = typeof body.username === 'string' ? body.username : '';
+            password = String(body.password ?? '');
+          }
+
+          username = username.trim();
+          const usernameOk = username === config.authUsername;
           let passwordOk = false;
           try {
-            passwordOk = await verifyPassword(String(body.password ?? ''), config.authPasswordHash);
+            passwordOk = await verifyPassword(password, config.authPasswordHash);
           } catch (error) {
-            return sendJson(res, error.statusCode ?? 503, { error: 'temporarily unavailable' });
+            const status = error.statusCode ?? 503;
+            if (form) return await renderLogin(res, { status, username, showError: true });
+            return sendJson(res, status, { error: 'temporarily unavailable' });
           }
-          if (!usernameOk || !passwordOk) return sendJson(res, 401, { error: 'invalid credentials' });
+          if (!usernameOk || !passwordOk) {
+            if (form) return await renderLogin(res, { status: 401, username, showError: true });
+            return sendJson(res, 401, { error: 'invalid credentials' });
+          }
 
           limiter.reset(ip);
-          const oldToken = parseCookies(req.headers.cookie).get(COOKIE_NAMES.session);
+          const oldToken = cookies.get(COOKIE_NAMES.session);
           const nextSession = store.rotate(oldToken, config.authUsername, config.sessionTtlMs, now());
-          return sendJson(res, 200, { ok: true }, {
-            'Set-Cookie': [
-              sessionCookie(nextSession.token, config),
-              clearCookie(COOKIE_NAMES.prelogin, config),
-            ],
-          });
+          const sessionCookies = [
+            sessionCookie(nextSession.token, config),
+            clearCookie(COOKIE_NAMES.prelogin, config),
+          ];
+          // Native form posts must end in a document navigation. 303 to `/`
+          // includes the session cookie, so that GET returns 200 instead of
+          // the anonymous 303 back to /login. A second hop onto the password
+          // form makes browsers treat the login as failed and skip saving.
+          // Wrong passwords stay on 4xx with no Location header.
+          if (form) return redirect(res, '/', { 'Set-Cookie': sessionCookies });
+          return sendJson(res, 200, { ok: true }, { 'Set-Cookie': sessionCookies });
         }
 
         const apiSession = requireSession(req, res, store);
