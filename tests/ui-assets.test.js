@@ -61,7 +61,8 @@ test('login form is a same-origin password form browsers can save', async (t) =>
   const formStart = html.indexOf('<form id="login-form"');
   const form = html.slice(formStart, html.indexOf('</form>', formStart) + '</form>'.length);
   assert.match(form, /method="post"/);
-  assert.match(form, /action="\/api\/auth\/login"/);
+  assert.match(form, /action="\/login"/);
+  assert.doesNotMatch(form, /action="\/api\//);
   assert.match(form, /autocomplete="on"/);
   assert.doesNotMatch(form, /autocomplete="off"/i);
   assert.doesNotMatch(form, /https?:\/\//);
@@ -74,7 +75,8 @@ test('login form is a same-origin password form browsers can save', async (t) =>
   assert.match(passwordField, /\btype="password"/);
   assert.match(passwordField, /\bautocomplete="current-password"/);
   assert.ok(form.indexOf('id="username"') < form.indexOf('id="password"'));
-  assert.ok(form.indexOf('id="password"') < form.indexOf('name="csrf_token"'));
+  assert.ok(form.indexOf('name="csrf_token"') < form.indexOf('id="password"'));
+  assert.ok(form.indexOf('name="csrf_token"') < form.indexOf('type="submit"'));
   assert.match(form, /<button\b[^>]*\bid="login-submit"[^>]*\btype="submit"/);
   assert.match(form, /<input\b[^>]*\bname="csrf_token"[^>]*\btype="hidden"/);
   const script = await readFile(join(publicDir, 'assets/login.js'), 'utf8');
@@ -88,7 +90,8 @@ test('login form is a same-origin password form browsers can save', async (t) =>
   assert.equal(page.status, 200);
   assert.doesNotMatch(served, /\{\{[A-Z0-9_]+\}\}/);
   assert.match(served, /method="post"/);
-  assert.match(served, /action="\/api\/auth\/login"/);
+  assert.match(served, /action="\/login"/);
+  assert.doesNotMatch(served, /action="\/api\//);
   assert.match(served, /autocomplete="username"/);
   assert.match(served, /autocomplete="current-password"/);
   assert.doesNotMatch(served, /id="username"[^>]*\bvalue=/);
@@ -98,7 +101,7 @@ test('login form is a same-origin password form browsers can save', async (t) =>
   assert.match(served, new RegExp(`name="csrf_token"[^>]*value="${csrf}"`));
 
   const prelogin = page.headers.getSetCookie().map((value) => value.split(';')[0]).join('; ');
-  const failed = await app.request('/api/auth/login', {
+  const failed = await app.request('/login', {
     method: 'POST',
     headers: { Origin: origin, Cookie: prelogin, 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'text/html' },
     body: new URLSearchParams({
@@ -118,7 +121,7 @@ test('login form is a same-origin password form browsers can save', async (t) =>
   assert.equal(failed.headers.getSetCookie().some((value) => value.startsWith('ps_session=') && !/Max-Age=0/.test(value)), false);
   const retryCookie = failed.headers.getSetCookie().map((value) => value.split(';')[0]).join('; ');
   const retryCsrf = failedHtml.match(/name="csrf-token" content="([^"]+)"/)[1];
-  const ok = await app.request('/api/auth/login', {
+  const ok = await app.request('/login', {
     method: 'POST',
     headers: { Origin: origin, Cookie: retryCookie, 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({ username: 'ui-test-user', password, csrf_token: retryCsrf }).toString(),
