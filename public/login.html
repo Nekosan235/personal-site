@@ -11,7 +11,7 @@
     <link rel="icon" href="/assets/favicon.svg?v=1.4.0" type="image/svg+xml">
     <link rel="stylesheet" href="/assets/vendor/tabler/tabler.min.css?v=1.6.1">
     <link rel="stylesheet" href="/assets/styles.css?v=1.7.0">
-    <script type="module" src="/assets/login.js?v=1.4.0"></script>
+    <script type="module" src="/assets/login.js?v=1.8.0"></script>
   </head>
   <body class="login-body">
     <button id="login-appearance" class="login-appearance btn btn-ghost-secondary" type="button" aria-haspopup="dialog">外观设置</button>
@@ -26,17 +26,18 @@
         <div class="login-panel-content card-body">
           <h1 id="login-title" class="card-title">登录你的工作台</h1>
           <p class="section-description">管理云端设备，打开常用工具。</p>
-          <form id="login-form" class="login-form" method="post" action="/api/auth/login">
+          <form id="login-form" class="login-form" method="post" action="/api/auth/login" autocomplete="on">
             <div class="form-field">
               <label class="form-label" for="username">用户名</label>
-              <input class="form-control" id="username" name="username" type="text" autocomplete="username" autocapitalize="none" spellcheck="false" placeholder="输入用户名" required maxlength="128">
+              <input class="form-control" id="username" name="username" type="text" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="输入用户名" required maxlength="128"{{USERNAME_ATTR}}>
             </div>
             <div class="form-field">
               <label class="form-label" for="password">密码</label>
               <input class="form-control" id="password" name="password" type="password" autocomplete="current-password" placeholder="输入密码" required maxlength="1024">
             </div>
-            <p id="login-error" class="form-error alert alert-danger" role="alert" hidden></p>
+            <p id="login-error" class="form-error alert alert-danger" role="alert"{{LOGIN_ERROR_ATTR}}>{{LOGIN_ERROR}}</p>
             <button id="login-submit" class="btn btn-primary login-submit" type="submit">登录</button>
+            <input id="csrf-token" name="csrf_token" type="hidden" value="{{CSRF_TOKEN}}">
           </form>
           <p class="login-private-note">此空间仅向已授权的账户开放。</p>
         </div>
