@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { once } from 'node:events';
@@ -12,9 +12,10 @@ import { createApplication } from '../server/index.js';
 import { loadConfig, validateRuntimeConfig } from '../server/config.js';
 import { hashPassword } from '../server/auth/password.js';
 import { presentSshServers } from '../server/terminal/targets.js';
+import { fingerprintHostKey } from '../server/terminal/hostkey.js';
 
 const require = createRequire(import.meta.url);
-const { Server } = require('ssh2');
+const { Server, utils } = require('ssh2');
 const USER = 'terminal-user';
 const SITE_PASSWORD = 'test-only-password-2026';
 const SSH_PASSWORD = 's3cr3t-ssh-pass-9f3a';
@@ -23,18 +24,32 @@ const ORIGIN = 'https://terminal.example';
 const passwordHash = await hashPassword(SITE_PASSWORD);
 const publicDir = fileURLToPath(new URL('../public', import.meta.url));
 
-function hostKey() {
-  return generateKeyPairSync('rsa', {
+function createHostKey() {
+  const privateKey = generateKeyPairSync('rsa', {
     modulusLength: 2048,
     privateKeyEncoding: { type: 'pkcs1', format: 'pem' },
     publicKeyEncoding: { type: 'pkcs1', format: 'pem' },
   }).privateKey;
+  const parsed = utils.parseKey(privateKey);
+  if (parsed instanceof Error) throw parsed;
+  const key = Array.isArray(parsed) ? parsed[0] : parsed;
+  return { privateKey, fingerprint: fingerprintHostKey(key.getPublicSSH()) };
 }
 
-function startEchoServer(t) {
+function startEchoServer(t, { acceptKey = null } = {}) {
+  const host = createHostKey();
   const shells = new Set();
-  const server = new Server({ hostKeys: [hostKey()] }, (client) => {
+  const stats = { connections: 0, auths: 0, methods: [] };
+  const server = new Server({ hostKeys: [host.privateKey] }, (client) => {
+    stats.connections += 1;
     client.on('authentication', (ctx) => {
+      stats.auths += 1;
+      stats.methods.push(ctx.method);
+      const keyData = ctx.key?.data;
+      if (ctx.method === 'publickey' && acceptKey && Buffer.isBuffer(keyData) && acceptKey.equals(keyData)) {
+        ctx.accept();
+        return;
+      }
       if (ctx.method === 'password' && ctx.username === 'tester' && ctx.password === SSH_PASSWORD) ctx.accept();
       else ctx.reject();
     });
@@ -60,7 +75,7 @@ function startEchoServer(t) {
         for (const stream of shells) stream.close();
         server.close(() => done());
       }));
-      resolve({ port: server.address().port, shells });
+      resolve({ port: server.address().port, shells, fingerprint: host.fingerprint, stats });
     });
   });
 }
@@ -86,11 +101,13 @@ async function fixture(t, { ssh = null, limits, env = {}, sshDial } = {}) {
     SSH_1_PORT: ssh ? String(ssh.port) : '22',
     SSH_1_USERNAME: 'tester',
     SSH_1_PASSWORD: SSH_PASSWORD,
+    SSH_1_HOST_FINGERPRINT: ssh?.fingerprint || '',
     SSH_2_ID: 'huawei-ap-southeast-1',
     SSH_2_HOST: '127.0.0.1',
     SSH_2_PORT: ssh ? String(ssh.port) : '22',
     SSH_2_USERNAME: 'tester',
     SSH_2_PASSWORD: SSH_PASSWORD,
+    SSH_2_HOST_FINGERPRINT: ssh?.fingerprint || '',
     SSH_3_ID: 'huawei-cn-east-3',
     SSH_3_USERNAME: 'tester',
     SSH_3_PASSWORD_FILE: '/etc/personal-site/ssh/huawei-cn-east-3.pass',
@@ -375,6 +392,97 @@ test('idle timeout and incomplete ssh configuration are rejected without live ho
   assert.throws(() => validateRuntimeConfig(incomplete), /SSH target cloud-01 is missing credentials/);
 });
 
+test('pinned host keys match, and a mismatch or missing pin is refused before authentication', async (t) => {
+  const ssh = await startEchoServer(t);
+  const app = await fixture(t, { ssh });
+  const cookie = await login(app.base);
+  const matched = await openSocket(app.base, cookie, 'cloud-01');
+  assert.equal(matched.status, 101);
+  const connected = await waitFor(matched, (payload, isBinary) => !isBinary && payload.includes('"connected"'));
+  assert.match(connected, /已连接/);
+  assert.ok(ssh.stats.auths > 0);
+
+  const mismatch = await fixture(t, {
+    ssh,
+    env: { SSH_1_HOST_FINGERPRINT: `SHA256:${'A'.repeat(43)}` },
+  });
+  const mismatchCookie = await login(mismatch.base);
+  const authsBefore = ssh.stats.auths;
+  const failed = await openSocket(mismatch.base, mismatchCookie, 'cloud-01');
+  const error = await waitFor(failed, (payload, isBinary) => !isBinary && payload.includes('主机指纹不匹配'));
+  assert.match(error, /主机指纹不匹配/);
+  assert.doesNotMatch(error, /PRIVATE|password|127\.0\.0\.1|SHA256:/);
+  await new Promise((resolve) => setTimeout(resolve, 150));
+  assert.equal(ssh.stats.auths, authsBefore);
+
+  const unset = await fixture(t, { ssh, env: { SSH_1_HOST_FINGERPRINT: '' } });
+  const unsetCookie = await login(unset.base);
+  const connectionsBefore = ssh.stats.connections;
+  const unsetSocket = await openSocket(unset.base, unsetCookie, 'cloud-01');
+  const unsetError = await waitFor(unsetSocket, (payload, isBinary) => !isBinary && payload.includes('未配置主机指纹'));
+  assert.match(unsetError, /未配置主机指纹，已拒绝连接/);
+  assert.equal(ssh.stats.connections, connectionsBefore);
+
+  const tofu = await fixture(t, {
+    ssh,
+    env: { SSH_1_HOST_FINGERPRINT: '', SSH_HOSTKEY_TOFU: '1' },
+  });
+  const tofuCookie = await login(tofu.base);
+  const trusted = await openSocket(tofu.base, tofuCookie, 'cloud-01');
+  await waitFor(trusted, (payload, isBinary) => !isBinary && payload.includes('"connected"'));
+});
+
+test('private key authentication is tried before the password fallback', async (t) => {
+  const privateKey = generateKeyPairSync('rsa', {
+    modulusLength: 2048,
+    privateKeyEncoding: { type: 'pkcs1', format: 'pem' },
+    publicKeyEncoding: { type: 'pkcs1', format: 'pem' },
+  }).privateKey;
+  const parsed = utils.parseKey(privateKey);
+  if (parsed instanceof Error) throw parsed;
+  const identity = Array.isArray(parsed) ? parsed[0] : parsed;
+  const directory = await mkdtemp(join(tmpdir(), 'personal-site-ssh-key-'));
+  const keyPath = join(directory, 'id_rsa');
+  await writeFile(keyPath, privateKey, { mode: 0o600 });
+  t.after(() => rm(directory, { recursive: true, force: true }));
+
+  const keyed = await startEchoServer(t, { acceptKey: identity.getPublicSSH() });
+  const app = await fixture(t, {
+    ssh: keyed,
+    env: { SSH_1_PASSWORD: '', SSH_1_PRIVATE_KEY_FILE: keyPath },
+  });
+  const cookie = await login(app.base);
+  const opened = await openSocket(app.base, cookie, 'cloud-01');
+  await waitFor(opened, (payload, isBinary) => !isBinary && payload.includes('"connected"'));
+  assert.ok(keyed.stats.methods.includes('publickey'));
+  assert.equal(keyed.stats.methods.includes('password'), false);
+  assert.equal(JSON.stringify(keyed.stats).includes(keyPath), false);
+
+  const fallbackServer = await startEchoServer(t);
+  const fallback = await fixture(t, {
+    ssh: fallbackServer,
+    env: { SSH_1_PRIVATE_KEY_FILE: keyPath, SSH_1_PASSWORD: SSH_PASSWORD },
+  });
+  const fallbackCookie = await login(fallback.base);
+  const session = await openSocket(fallback.base, fallbackCookie, 'cloud-01');
+  await waitFor(session, (payload, isBinary) => !isBinary && payload.includes('"connected"'));
+  const publickeyAt = fallbackServer.stats.methods.indexOf('publickey');
+  const passwordAt = fallbackServer.stats.methods.indexOf('password');
+  assert.ok(publickeyAt >= 0);
+  assert.ok(passwordAt > publickeyAt);
+});
+
+test('terminal upgrades are rate limited per session', async (t) => {
+  const app = await fixture(t, { limits: { upgradeMaxAttempts: 2 } });
+  const cookie = await login(app.base);
+  assert.equal((await openSocket(app.base, cookie, 'cloud-01')).status, 101);
+  assert.equal((await openSocket(app.base, cookie, 'cloud-01')).status, 101);
+  const limited = await openSocket(app.base, cookie, 'cloud-01');
+  assert.equal(limited.status, 429);
+  assert.match(limited.body, /终端连接过于频繁/);
+  assert.doesNotMatch(limited.body, new RegExp(SSH_PASSWORD));
+});
+
 test('the example env documents the three fleet slots and contains no private key', async () => {
   const example = await readFile(new URL('../deploy/site.env.example', import.meta.url), 'utf8');
   assert.match(example, /SSH_1_ID=cloud-01/);
@@ -382,10 +490,16 @@ test('the example env documents the three fleet slots and contains no private ke
   assert.match(example, /SSH_2_ID=huawei-ap-southeast-1/);
   assert.match(example, /SSH_3_ID=huawei-cn-east-3/);
   assert.match(example, /SSH_1_PRIVATE_KEY_FILE=/);
+  assert.match(example, /SERVER_SSH_HOSTKEY/);
+  assert.match(example, /REMOTE_CLOUD_1_SSH_HOSTKEY/);
+  assert.match(example, /ssh-keygen -lf -/);
+  assert.match(example, /SSH_HOSTKEY_TOFU/);
   assert.doesNotMatch(example, /BEGIN [A-Z ]*PRIVATE KEY/);
   assert.doesNotMatch(example, /SSH_\d+_PASSWORD=.+/);
   const page = await readFile(new URL('../public/assets/pages/terminal.js', import.meta.url), 'utf8');
   assert.doesNotMatch(page, /PRIVATE KEY|SSH_\d+_PASSWORD|s3cr3t/);
   const caddy = await readFile(new URL('../deploy/Caddyfile', import.meta.url), 'utf8');
   assert.match(caddy, /\/api\/terminal\/session/);
+  assert.match(caddy, /Strict-Transport-Security "max-age=31536000"/);
+  assert.doesNotMatch(caddy, /Strict-Transport-Security[^\n]*preload/i);
 });

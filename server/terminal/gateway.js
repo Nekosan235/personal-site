@@ -1,4 +1,6 @@
 import { WebSocketServer } from 'ws';
+import { LoginRateLimiter } from '../auth/rate-limit.js';
+import { clientIp } from '../auth/client-ip.js';
 import { presentSshServers } from './targets.js';
 import { dialSsh } from './ssh.js';
 import { runTerminalSession } from './session.js';
@@ -42,6 +44,10 @@ export function attachTerminalGateway(server, {
     maxSessions: limits.maxSessions ?? config.sshMaxSessions,
     readyTimeoutMs: limits.readyTimeoutMs ?? config.sshReadyTimeoutMs,
   };
+  const upgradeLimiter = new LoginRateLimiter({
+    windowMs: limits.upgradeWindowMs ?? 10 * 60 * 1000,
+    maxAttempts: limits.upgradeMaxAttempts ?? 30,
+  });
 
   function list() {
     return Promise.resolve(localServer()).then((serverInfo) => presentSshServers(config.sshTargets, {
@@ -67,7 +73,13 @@ export function attachTerminalGateway(server, {
       return;
     }
     const auth = getSession(request);
+    const ip = clientIp(request);
     if (!auth) {
+      const anon = upgradeLimiter.check(`anon:${ip}`);
+      if (!anon.allowed) {
+        rejectUpgrade(socket, 429, '终端连接过于频繁');
+        return;
+      }
       rejectUpgrade(socket, 401, 'unauthorized');
       return;
     }
@@ -75,6 +87,12 @@ export function attachTerminalGateway(server, {
     const target = (config.sshTargets ?? []).find((item) => item.ready && item.id === serverId);
     if (!target) {
       rejectUpgrade(socket, 404, 'unknown server');
+      return;
+    }
+    const ipRate = upgradeLimiter.check(`ip:${ip}`);
+    const sessionRate = upgradeLimiter.check(`session:${auth.token}`);
+    if (!ipRate.allowed || !sessionRate.allowed) {
+      rejectUpgrade(socket, 429, '终端连接过于频繁');
       return;
     }
     const previous = byToken.get(auth.token);
@@ -87,6 +105,9 @@ export function attachTerminalGateway(server, {
       return;
     }
     sockets.handleUpgrade(request, socket, head, (ws) => {
+      const user = String(auth.username || '').replace(/[\u0000-\u001f\u007f]/g, '').slice(0, 80);
+      const targetId = String(target.id || '').replace(/[\u0000-\u001f\u007f]/g, '').slice(0, 80);
+      console.info(`personal-site terminal: open user=${user} target=${targetId}`);
       const session = runTerminalSession({
         socket: ws,
         target: { ...target, readyTimeoutMs: runtimeLimits.readyTimeoutMs },

@@ -40,11 +40,13 @@ test('CDN allowlist accepts known hosts and rejects open-proxy targets', () => {
 });
 
 test('blocked addresses include loopback, link-local, and private ranges', () => {
-  for (const ip of ['127.0.0.1', '10.1.2.3', '192.168.1.1', '172.16.0.1', '169.254.169.254', '0.0.0.0', '::1', 'fc00::1', 'fe80::1', '100.64.1.1', '255.255.255.255']) {
+  for (const ip of ['127.0.0.1', '10.1.2.3', '192.168.1.1', '172.16.0.1', '169.254.169.254', '0.0.0.0', '::1', 'fc00::1', 'fe80::1', '100.64.1.1', '255.255.255.255', '198.18.0.1', '198.19.255.1', '::ffff:198.18.0.1', '64:ff9b::1', '64:ff9b::8.8.8.8']) {
     assert.equal(isBlockedAddress(ip), true, ip);
   }
   assert.equal(isBlockedAddress('8.8.8.8'), false);
+  assert.equal(isBlockedAddress('198.20.0.1'), false);
   assert.equal(isBlockedAddress('2001:4860:4860::8888'), false);
+  assert.equal(isBlockedAddress('64:ff9b:1::1'), false);
 });
 
 test('forwards the client Range header and a platform Referer to the upstream', async (t) => {

@@ -153,6 +153,8 @@ test('errors stay short and do not keep credential-shaped text', () => {
   assert.equal(controller.snapshot().phase, 'error');
   assert.equal(controller.snapshot().statusText, '连接失败');
   assert.equal(sanitizeStatus('连接超时'), '连接超时');
+  assert.equal(sanitizeStatus('主机指纹不匹配'), '主机指纹不匹配');
+  assert.equal(sanitizeStatus('未配置主机指纹，已拒绝连接'), '未配置主机指纹，已拒绝连接');
   sockets[0].handlers.onControl({ type: 'status', state: 'error', code: 'auth_expired', message: '登录已失效' });
 });
 

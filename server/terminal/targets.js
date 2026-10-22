@@ -1,4 +1,5 @@
 import { isAbsolute } from 'node:path';
+import { isAcceptableFingerprint, parseHostFingerprints } from './hostkey.js';
 
 const SSH_SLOTS = 8;
 const ID_PATTERN = /^[A-Za-z0-9_.:-]{1,64}$/;
@@ -8,6 +9,26 @@ const HOST_PATTERN = /^[A-Za-z0-9._:-]{1,253}$/;
 function textValue(overrides, env, lower, upper) {
   const value = overrides[lower] ?? overrides[upper] ?? env[upper];
   return typeof value === 'string' ? value.trim() : '';
+}
+
+function boolFlag(value) {
+  return ['1', 'true', 'yes', 'on'].includes(String(value ?? '').trim().toLowerCase());
+}
+
+function readProfile(overrides, env, lower, upper) {
+  return {
+    username: textValue(overrides, env, `${lower}Username`, `${upper}_USERNAME`),
+    privateKeyFile: textValue(overrides, env, `${lower}PrivateKeyFile`, `${upper}_PRIVATE_KEY_FILE`),
+    passwordFile: textValue(overrides, env, `${lower}PasswordFile`, `${upper}_PASSWORD_FILE`),
+    hostFingerprint: textValue(overrides, env, `${lower}Hostkey`, `${upper}_HOSTKEY`),
+  };
+}
+
+function fingerprintState(value) {
+  const parsed = parseHostFingerprints(value);
+  if (!String(value ?? '').trim()) return '';
+  if (!parsed.ok) return String(value).trim();
+  return parsed.fingerprints.join(',');
 }
 
 function clampPort(value) {
@@ -38,7 +59,7 @@ export function normalizeSshTarget(input = {}, devices = [], slot = 0) {
   const passwordFile = String(input.passwordFile ?? '').trim();
   const privateKey = typeof input.privateKey === 'string' ? input.privateKey : '';
   const password = typeof input.password === 'string' ? input.password : '';
-  const hostFingerprint = String(input.hostFingerprint ?? '').trim();
+  const hostFingerprint = fingerprintState(input.hostFingerprint);
   const credential = hasCredential({ privateKeyFile, passwordFile, privateKey, password });
   return {
     slot,
@@ -54,34 +75,69 @@ export function normalizeSshTarget(input = {}, devices = [], slot = 0) {
     privateKey,
     password,
     hostFingerprint,
+    trustOnFirstUse: Boolean(input.trustOnFirstUse),
     ready: Boolean(id && username && dialHost && credential),
   };
 }
 
+function mergeProfile(target, profile, trustOnFirstUse) {
+  const username = target.username || profile?.username || '';
+  const privateKeyFile = target.privateKeyFile || profile?.privateKeyFile || '';
+  const passwordFile = target.passwordFile || profile?.passwordFile || '';
+  const hostFingerprint = fingerprintState(target.hostFingerprint || profile?.hostFingerprint || '');
+  const credential = hasCredential({
+    privateKeyFile,
+    passwordFile,
+    privateKey: target.privateKey,
+    password: target.password,
+  });
+  return {
+    ...target,
+    username,
+    privateKeyFile,
+    passwordFile,
+    hostFingerprint,
+    trustOnFirstUse: Boolean(target.trustOnFirstUse || trustOnFirstUse),
+    ready: Boolean(target.id && username && target.dialHost && credential),
+  };
+}
+
 export function loadSshTargets(overrides, env, devices) {
+  const trustOnFirstUse = boolFlag(textValue(overrides, env, 'sshHostkeyTofu', 'SSH_HOSTKEY_TOFU'));
+  const profiles = new Map();
+  const serverId = devices?.[0]?.id || textValue(overrides, env, 'serverId', 'SERVER_ID');
+  if (serverId) profiles.set(serverId, readProfile(overrides, env, 'serverSsh', 'SERVER_SSH'));
+  for (let index = 1; index <= SSH_SLOTS; index += 1) {
+    const id = textValue(overrides, env, `remoteCloud${index}Id`, `REMOTE_CLOUD_${index}_ID`);
+    if (!id || profiles.has(id)) continue;
+    profiles.set(id, readProfile(overrides, env, `remoteCloud${index}Ssh`, `REMOTE_CLOUD_${index}_SSH`));
+  }
+
+  let targets;
   if (Array.isArray(overrides.sshTargets)) {
-    return overrides.sshTargets.map((target, index) => normalizeSshTarget(target, devices, index + 1));
+    targets = overrides.sshTargets.map((target, index) => normalizeSshTarget(target, devices, index + 1));
+  } else {
+    targets = [];
+    for (let slot = 1; slot <= SSH_SLOTS; slot += 1) {
+      const id = textValue(overrides, env, `ssh${slot}Id`, `SSH_${slot}_ID`);
+      if (!id) continue;
+      targets.push(normalizeSshTarget({
+        id,
+        name: textValue(overrides, env, `ssh${slot}Name`, `SSH_${slot}_NAME`),
+        region: textValue(overrides, env, `ssh${slot}Region`, `SSH_${slot}_REGION`),
+        dialHost: textValue(overrides, env, `ssh${slot}Host`, `SSH_${slot}_HOST`),
+        displayHost: textValue(overrides, env, `ssh${slot}DisplayHost`, `SSH_${slot}_DISPLAY_HOST`),
+        port: textValue(overrides, env, `ssh${slot}Port`, `SSH_${slot}_PORT`) || 22,
+        username: textValue(overrides, env, `ssh${slot}Username`, `SSH_${slot}_USERNAME`),
+        privateKeyFile: textValue(overrides, env, `ssh${slot}PrivateKeyFile`, `SSH_${slot}_PRIVATE_KEY_FILE`),
+        passwordFile: textValue(overrides, env, `ssh${slot}PasswordFile`, `SSH_${slot}_PASSWORD_FILE`),
+        privateKey: textValue(overrides, env, `ssh${slot}PrivateKey`, `SSH_${slot}_PRIVATE_KEY`),
+        password: textValue(overrides, env, `ssh${slot}Password`, `SSH_${slot}_PASSWORD`),
+        hostFingerprint: textValue(overrides, env, `ssh${slot}HostFingerprint`, `SSH_${slot}_HOST_FINGERPRINT`),
+      }, devices, slot));
+    }
   }
-  const targets = [];
-  for (let slot = 1; slot <= SSH_SLOTS; slot += 1) {
-    const id = textValue(overrides, env, `ssh${slot}Id`, `SSH_${slot}_ID`);
-    if (!id) continue;
-    targets.push(normalizeSshTarget({
-      id,
-      name: textValue(overrides, env, `ssh${slot}Name`, `SSH_${slot}_NAME`),
-      region: textValue(overrides, env, `ssh${slot}Region`, `SSH_${slot}_REGION`),
-      dialHost: textValue(overrides, env, `ssh${slot}Host`, `SSH_${slot}_HOST`),
-      displayHost: textValue(overrides, env, `ssh${slot}DisplayHost`, `SSH_${slot}_DISPLAY_HOST`),
-      port: textValue(overrides, env, `ssh${slot}Port`, `SSH_${slot}_PORT`) || 22,
-      username: textValue(overrides, env, `ssh${slot}Username`, `SSH_${slot}_USERNAME`),
-      privateKeyFile: textValue(overrides, env, `ssh${slot}PrivateKeyFile`, `SSH_${slot}_PRIVATE_KEY_FILE`),
-      passwordFile: textValue(overrides, env, `ssh${slot}PasswordFile`, `SSH_${slot}_PASSWORD_FILE`),
-      privateKey: textValue(overrides, env, `ssh${slot}PrivateKey`, `SSH_${slot}_PRIVATE_KEY`),
-      password: textValue(overrides, env, `ssh${slot}Password`, `SSH_${slot}_PASSWORD`),
-      hostFingerprint: textValue(overrides, env, `ssh${slot}HostFingerprint`, `SSH_${slot}_HOST_FINGERPRINT`),
-    }, devices, slot));
-  }
-  return targets;
+  return targets.map((target) => mergeProfile(target, profiles.get(target.id), trustOnFirstUse));
 }
 
 export function validateSshTargets(targets) {
@@ -111,7 +167,7 @@ export function validateSshTargets(targets) {
     if (target.privateKey && !target.privateKey.includes('PRIVATE KEY')) {
       missing.push(`SSH private key for ${target.id} must be a PEM private key`);
     }
-    if (target.hostFingerprint && !/^SHA256:[A-Za-z0-9+/]{20,128}={0,2}$/.test(target.hostFingerprint)) {
+    if (target.hostFingerprint && !isAcceptableFingerprint(target.hostFingerprint)) {
       missing.push(`SSH host fingerprint for ${target.id} must look like SHA256:...`);
     }
     if (!target.ready) missing.push(`SSH target ${target.id} is missing credentials or a dial host`);

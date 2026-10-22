@@ -340,6 +340,37 @@ test('encoded traversal cannot read files outside public assets', async t => {
   assert.doesNotMatch(await response.text(), /test-private-content/);
 });
 
+test('https responses send HSTS without preload and plain HTTP does not', async (t) => {
+  const secure = await fixture(t);
+  const secureResponse = await secure.client().request('/login');
+  assert.equal(secureResponse.headers.get('strict-transport-security'), 'max-age=31536000');
+  assert.equal(secureResponse.headers.get('x-content-type-options'), 'nosniff');
+  assert.match(secureResponse.headers.get('permissions-policy') ?? '', /camera=\(\)/);
+  const local = await fixture(t, {
+    SITE_ORIGIN: 'http://127.0.0.1:9',
+    NODE_ENV: 'development',
+    cookieSecure: false,
+  });
+  const localResponse = await local.client().request('/login');
+  assert.equal(localResponse.headers.get('strict-transport-security'), null);
+});
+
+test('login failures are limited per account across source addresses', async (t) => {
+  const f = await fixture(t);
+  const c = f.client();
+  const csrf = await c.challenge();
+  let response;
+  for (let index = 0; index < 6; index += 1) {
+    response = await c.request('/api/auth/login', {
+      method: 'POST',
+      body: { username: USER, password: 'wrong' },
+      headers: { 'X-CSRF-Token': csrf, 'X-Forwarded-For': `203.0.113.${index + 1}` },
+    });
+  }
+  assert.equal(response.status, 429);
+  assert.equal((await response.json()).error, 'invalid credentials');
+});
+
 test('production config cannot disable secure cookies or use HTTP origins', () => {
   const base = { authUsername: USER, authPasswordHash: passwordHash, authSecret: 'x'.repeat(64), nodeEnv: 'production' };
   assert.throws(() => validateRuntimeConfig({ ...base, siteOrigin: 'http://example.test', cookieSecure: true }));
