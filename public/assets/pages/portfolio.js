@@ -1,5 +1,5 @@
 import { projectById } from '../components/portfolio-data.js?v=1.5.0';
-import { renderHonorPage, renderProjectPage, renderWorkPage } from '../components/portfolio-view.js?v=1.5.0';
+import { renderHonorPage, renderProjectPage, renderWorkPage } from '../components/portfolio-view.js?v=1.11.0';
 
 export function renderPortfolio({ module }) {
   if (module.id === 'work') return renderWorkPage();

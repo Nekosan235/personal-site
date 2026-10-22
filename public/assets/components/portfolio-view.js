@@ -41,7 +41,7 @@ export function renderFeaturedGrid() {
 export function renderHomeProjects() {
   return element('section', {
     className: 'work-home',
-    attributes: { 'aria-labelledby': 'home-work-title', 'data-home-work': '' },
+    attributes: { 'aria-labelledby': 'home-work-title', 'data-home-work': '', 'data-dashboard-module': 'work' },
   }, [
     element('div', { className: 'work-home-head' }, [
       element('div', {}, [

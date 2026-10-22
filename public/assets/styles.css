@@ -321,6 +321,34 @@ input[type="number"], .form-control[inputmode="decimal"] { font-family: var(--fo
 .refresh-hint { margin-left: auto; }
 .device-note { margin: 7px 0 0; color: var(--secondary); font-size: 10px; line-height: 1.7; }
 .dashboard-links { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-top: 12px; }
+.dashboard-page { max-width: 100%; overflow-x: clip; }
+.dashboard-board { display: flex; flex-direction: column; gap: 16px; min-width: 0; max-width: 100%; }
+.dashboard-module { min-width: 0; max-width: 100%; }
+.layout-toolbar { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 12px; }
+.layout-toolbar .btn,
+.layout-handle,
+.layout-nudge { min-height: 36px; }
+.layout-module-bar { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 6px; margin: 0 0 8px; }
+.layout-handle,
+.layout-nudge { margin: 0; min-width: 44px; padding: 0 10px; border: 1px solid var(--border); border-radius: 2px; background: var(--surface-2); color: var(--secondary); font-family: var(--font-mono); font-size: 12px; letter-spacing: .04em; cursor: pointer; }
+.layout-handle { cursor: grab; touch-action: none; }
+.layout-handle::before { content: "⋮⋮"; margin-right: 6px; letter-spacing: -0.2em; }
+.layout-handle:active,
+.layout-handle.is-active { cursor: grabbing; }
+.layout-placeholder { display: grid; place-items: center; min-height: 72px; padding: 12px; color: var(--secondary); background: var(--accent-soft); border: 1px dashed var(--accent); border-radius: var(--radius); font-family: var(--font-mono); font-size: 12px; letter-spacing: .04em; }
+.dashboard-module.is-dragging,
+.work-home.is-dragging { opacity: .45; }
+.device-copy { min-width: 0; flex: 1; }
+.device-title-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.device-title-row .device-name { flex: 1 1 auto; min-width: 0; }
+.device-rename { flex: none; min-height: 36px; padding-inline: 10px; }
+.device-rename-form { display: none; flex-wrap: wrap; align-items: center; gap: 8px; width: 100%; min-width: 0; max-width: 100%; margin-top: 8px; }
+.device-rename-form.is-open { display: flex; }
+.device-rename-input { flex: 1 1 8em; width: 100%; min-width: 0; max-width: 100%; min-height: 36px; padding: 6px 8px; color: var(--ink); background: var(--bg); border: 1px solid var(--border); border-radius: 2px; font-family: var(--font-mono); font-size: 13px; }
+.device-rename-save,
+.device-rename-cancel { flex: none; min-height: 36px; }
+.device-expiry { margin: 0 0 6px; color: var(--secondary); font-family: var(--font-mono); font-size: 11px; font-variant-numeric: tabular-nums; letter-spacing: .02em; }
+.device-expiry.is-expired { color: var(--warning); }
 .tool-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-bottom: 12px; }
 .tool-tile { min-height: 0; color: var(--ink); text-decoration: none; }
 .tool-tile .card-body { display: flex; flex-direction: column; padding: 16px; }
@@ -394,6 +422,16 @@ input[type="number"], .form-control[inputmode="decimal"] { font-family: var(--fo
   .app-body .container { padding-inline: 16px; }
   .app-topbar.navbar { left: 0; padding-inline: 12px; }
   .menu-toggle { display: inline-flex; min-height: 44px; min-width: 44px; margin-left: -8px; }
+  .layout-toolbar .btn,
+  .layout-handle,
+  .layout-nudge,
+  .device-rename,
+  .device-rename-input,
+  .device-rename-save,
+  .device-rename-cancel { min-height: 44px; }
+  .device-rename-input { font-size: 16px; }
+  .dashboard-board:not([data-layout-editing="true"]) .layout-nudge { display: none; }
+  .dashboard-board:not([data-layout-editing="true"]) .layout-handle { touch-action: manipulation; }
   .app-sidebar.navbar .navbar-nav .nav-link,
   .sidebar-bottom .btn,
   .sidebar-close { min-height: 44px; }
@@ -403,6 +441,18 @@ input[type="number"], .form-control[inputmode="decimal"] { font-family: var(--fo
   .app-sidebar .sidebar-brand { padding-top: 24px; }
   .sidebar-close { display: inline-flex; min-width: 32px; padding-inline: 5px; }
   .app-topbar .topbar-path { gap: 8px; }
+}
+@media (pointer: coarse) {
+  .layout-toolbar .btn,
+  .layout-handle,
+  .layout-nudge,
+  .device-rename,
+  .device-rename-input,
+  .device-rename-save,
+  .device-rename-cancel { min-height: 44px; }
+  .device-rename-input { font-size: 16px; }
+  .dashboard-board:not([data-layout-editing="true"]) .layout-nudge { display: none; }
+  .dashboard-board:not([data-layout-editing="true"]) .layout-handle { touch-action: manipulation; }
 }
 @media (max-width: 575.98px) {
   .app-body .container { padding-inline: 12px; }
@@ -528,6 +578,7 @@ input[type="number"], .form-control[inputmode="decimal"] { font-family: var(--fo
 }
 /* Engineer portfolio wall. Static cards only; no motion beyond the existing loading indicator. */
 .work-home { margin-bottom: 28px; }
+.dashboard-board > .work-home { min-width: 0; max-width: 100%; margin-bottom: 0; }
 .work-home-head, .work-card-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
 .work-home-head { align-items: flex-end; margin-bottom: 14px; }
 .work-home-title, .work-section-title { margin: 0; font-size: 16px; font-weight: 650; line-height: 1.4; }
