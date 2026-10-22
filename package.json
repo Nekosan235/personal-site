@@ -15,7 +15,7 @@
   },
   "dependencies": {
     "ssh2": "1.17.0",
-    "ws": "8.18.3"
+    "ws": "8.22.0"
   },
   "devDependencies": {
     "@xterm/addon-fit": "0.10.0",

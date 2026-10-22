@@ -1,11 +1,12 @@
 import { createServer } from 'node:http';
-import { isIP } from 'node:net';
 import { createReadStream, realpathSync } from 'node:fs';
 import { readFile, stat } from 'node:fs/promises';
 import { extname, normalize, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomBytes } from 'node:crypto';
 import { loadConfig, validateRuntimeConfig } from './config.js';
+import { clientIp } from './auth/client-ip.js';
+import { secretEquals } from './auth/compare.js';
 import { COOKIE_NAMES, clearCookie, parseCookies, preloginCookie, sessionCookie } from './auth/cookies.js';
 import { verifyPassword } from './auth/password.js';
 import { createPreloginToken, verifyPreloginToken } from './auth/prelogin.js';
@@ -46,21 +47,26 @@ const MIME_TYPES = new Map([
   ['.ico', 'image/x-icon'],
 ]);
 
-function securityHeaders(contentType) {
+function securityHeaders(contentType, hsts = false) {
   const headers = {
     'Content-Security-Policy':
       "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; worker-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
     'X-Frame-Options': 'DENY',
     'X-Content-Type-Options': 'nosniff',
     'Referrer-Policy': 'same-origin',
+    'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
+    'Cross-Origin-Opener-Policy': 'same-origin',
+    'Cross-Origin-Resource-Policy': 'same-origin',
+    'X-DNS-Prefetch-Control': 'off',
     'Cache-Control': 'private, no-store',
   };
+  if (hsts) headers['Strict-Transport-Security'] = 'max-age=31536000';
   if (contentType) headers['Content-Type'] = contentType;
   return headers;
 }
 
 function send(res, status, body = '', headers = {}) {
-  res.writeHead(status, { ...securityHeaders(headers['Content-Type']), ...headers });
+  res.writeHead(status, { ...securityHeaders(headers['Content-Type'], Boolean(res.hsts)), ...headers });
   res.end(body);
 }
 
@@ -90,18 +96,6 @@ function fillTemplate(content, replacements) {
   return content.replace(/\{\{[A-Z0-9_]+\}\}/g, (token) => (
     Object.prototype.hasOwnProperty.call(replacements, token) ? replacements[token] : token
   ));
-}
-
-function getClientIp(req) {
-  const remote = req.socket.remoteAddress ?? '';
-  const normalizedRemote = remote.startsWith('::ffff:') ? remote.slice(7) : remote;
-  const isTrustedProxy = normalizedRemote === '127.0.0.1' || normalizedRemote === '::1';
-  const forwarded = req.headers['x-forwarded-for'];
-  if (isTrustedProxy && typeof forwarded === 'string' && forwarded.trim()) {
-    const candidate = forwarded.split(',')[0].trim();
-    if (isIP(candidate)) return candidate;
-  }
-  return isIP(normalizedRemote) ? normalizedRemote : 'unknown';
 }
 
 function isAllowedOrigin(req, config) {
@@ -173,7 +167,7 @@ async function serveFile(res, publicDir, pathname, replacements = null) {
     }
     res.destroy();
   });
-  res.writeHead(200, securityHeaders(type));
+  res.writeHead(200, securityHeaders(type, Boolean(res.hsts)));
   stream.pipe(res);
 }
 
@@ -249,7 +243,7 @@ function requireSession(req, res, store) {
 
 function verifyCsrf(req, session) {
   const token = req.headers['x-csrf-token'];
-  return typeof token === 'string' && token.length > 0 && token === session.csrf;
+  return typeof token === 'string' && secretEquals(token, session.csrf);
 }
 
 function forbidden(res) {
@@ -259,7 +253,14 @@ function forbidden(res) {
 export function createApplication(options = {}) {
   const config = loadConfig(process.env, options.config ?? {});
   const store = options.sessionStore ?? new SessionStore(config.databasePath);
-  const limiter = options.loginRateLimiter ?? new LoginRateLimiter(options.rateLimit);
+  const rateOptions = options.rateLimit ?? {};
+  const limiter = options.loginRateLimiter ?? new LoginRateLimiter(rateOptions);
+  const accountLimiter = options.loginAccountRateLimiter ?? new LoginRateLimiter({
+    windowMs: rateOptions.windowMs ?? 15 * 60 * 1000,
+    maxAttempts: rateOptions.maxAccountAttempts ?? 5,
+    maxEntries: rateOptions.maxEntries ?? 4096,
+  });
+  const hstsEnabled = config.cookieSecure || String(config.siteOrigin).startsWith('https://');
   const now = options.now ?? (() => Date.now());
   const publicDir = config.publicDir;
   const businessPages = new Set(getModules(config).filter((module) => module.path).map((module) => module.path));
@@ -273,7 +274,7 @@ export function createApplication(options = {}) {
     parseLimiter: options.mediaRateLimiter,
     healthLimiter: options.mediaHealthRateLimiter,
     now,
-    securityHeaders,
+    securityHeaders: (contentType) => securityHeaders(contentType, hstsEnabled),
   });
   dashboardProvider?.start?.();
 
@@ -334,10 +335,10 @@ export function createApplication(options = {}) {
       config.authSecret || 'dev-insecure-secret',
       now(),
     );
-    const ip = getClientIp(req);
+    const ip = clientIp(req);
     if (!form) {
       const csrfHeader = req.headers['x-csrf-token'];
-      if (typeof csrfHeader !== 'string' || !prelogin || csrfHeader !== prelogin.csrf) return forbidden(res);
+      if (typeof csrfHeader !== 'string' || !prelogin || !secretEquals(csrfHeader, prelogin.csrf)) return forbidden(res);
       const rate = limiter.check(ip, now());
       if (!rate.allowed) return sendJson(res, rate.statusCode ?? 401, { error: 'invalid credentials' });
     }
@@ -360,7 +361,7 @@ export function createApplication(options = {}) {
       username = params.get('username') ?? '';
       password = params.get('password') ?? '';
       const csrf = params.get('csrf_token') ?? '';
-      if (!prelogin || csrf !== prelogin.csrf) {
+      if (!prelogin || !secretEquals(csrf, prelogin.csrf)) {
         return renderLogin(res, { status: 403, username, showError: true });
       }
       const rate = limiter.check(ip, now());
@@ -379,6 +380,11 @@ export function createApplication(options = {}) {
     }
 
     username = username.trim();
+    const accountRate = accountLimiter.check('account', now());
+    if (!accountRate.allowed) {
+      if (form) return renderLogin(res, { status: accountRate.statusCode ?? 429, username, showError: true });
+      return sendJson(res, accountRate.statusCode ?? 429, { error: 'invalid credentials' });
+    }
     const usernameOk = username === config.authUsername;
     let passwordOk = false;
     try {
@@ -394,6 +400,7 @@ export function createApplication(options = {}) {
     }
 
     limiter.reset(ip);
+    accountLimiter.reset('account');
     const oldToken = cookies.get(COOKIE_NAMES.session);
     const nextSession = store.rotate(oldToken, config.authUsername, config.sessionTtlMs, now());
     const sessionCookies = [
@@ -421,6 +428,7 @@ export function createApplication(options = {}) {
   }
 
   const server = createServer(async (req, res) => {
+    res.hsts = hstsEnabled;
     try {
       const url = new URL(req.url ?? '/', 'http://internal');
       const pathname = url.pathname;

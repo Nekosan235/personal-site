@@ -1,4 +1,7 @@
-import { isIP } from 'node:net';
+import { BlockList, isIP } from 'node:net';
+
+const nat64 = new BlockList();
+nat64.addSubnet('64:ff9b::', 96, 'ipv6');
 
 const XHS_EXACT = new Set([
   'ci.xiaohongshu.com',
@@ -62,6 +65,7 @@ export function isBlockedAddress(value) {
     if (a === 172 && b >= 16 && b <= 31) return true;
     if (a === 192 && b === 168) return true;
     if (a === 100 && b >= 64 && b <= 127) return true;
+    if (a === 198 && (b === 18 || b === 19)) return true;
     if (a >= 224) return true;
     return false;
   }
@@ -69,6 +73,7 @@ export function isBlockedAddress(value) {
     if (ip === '::' || ip === '::1') return true;
     if (ip.startsWith('fc') || ip.startsWith('fd')) return true;
     if (/^fe[89ab]/.test(ip)) return true;
+    if (nat64.check(ip, 'ipv6')) return true;
     return false;
   }
   return true;

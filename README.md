@@ -6,7 +6,7 @@ Tabler 样式位于 `public/assets/vendor/tabler/tabler.min.css`，上游许可�
 
 ## 功能
 
-- 单用户密码登录，后端保护页面、脚本和 API；SQLite 持久会话、scrypt 密码哈希、CSRF 与登录限流。
+- 单用户密码登录，后端保护页面、脚本和 API；SQLite 持久会话、scrypt 密码哈希、CSRF 与登录限流。同一账号跨来源地址连续失败 5 次后，15 分钟内拒绝再试。
 - 作品墙：概览页 4 张主要项目卡片，另有项目页、其他练习和荣誉奖状。奖状在登录后显示。项目页留有设备三维查看位，当前不加载模型。
 - 首页先显示“欢迎回来”，停留一段时间后轮换原创短句。
 - 浅色、深色、跟随系统及日出日落主题。深色是终端工作台（锁定色板、细边框、等宽数字）。外观设置里选「浅色」即可回退；偏好保存在本机 `personal-space.appearance.v1`。自动识别本机时区，使用明确标注的参考城市计算日出日落，可手动覆盖。
@@ -179,7 +179,7 @@ REMOTE_CLOUD_2_EXPIRES_AT=2026-11-30T16:00:00Z
 
 侧边栏「终端」打开 `/terminal`。页面先处于空闲，不会自动连接。右侧列出已经写进 `site.env` 的服务器，名称、地区、IP 和在线状态与概览页的监控卡一致。点一台才发起 SSH；点另一台会先断开当前会话，状态栏显示「断开 A → 连接 B」。「断开连接」在连接中、已连接和断开过程中都可以点，并会马上关闭 WebSocket 和服务器上的 SSH 会话。离开页面或登录失效也会断开。
 
-浏览器只收到 `id`、名称、地区、展示用主机地址和在线状态。密码、私钥和令牌只留在 Node 进程里，从环境变量或 root 可读的文件读取。允许连接的机器由 `SSH_1` 到 `SSH_8` 登记，空的 ID 会跳过。`SSH_N_ID` 与 `SERVER_ID` 或 `REMOTE_CLOUD_N_ID` 相同时，列表沿用那张监控卡的名称和地址。`SSH_N_HOST` 只决定 Node 拨号的地址，例如阿里云本机拨 `127.0.0.1`，页面仍显示 `SERVER_IP`。
+浏览器只收到 `id`、名称、地区、展示用主机地址和在线状态。密码、私钥和令牌只留在 Node 进程里，从环境变量或 root 可读的文件读取。允许连接的机器由 `SSH_1` 到 `SSH_8` 登记，空的 ID 会跳过。`SSH_N_ID` 与 `SERVER_ID` 或 `REMOTE_CLOUD_N_ID` 相同时，列表沿用那张监控卡的名称和地址，并继承那台机器上的 SSH 用户名、密钥和主机指纹。`SSH_N_HOST` 只决定 Node 拨号的地址，例如阿里云本机拨 `127.0.0.1`，页面仍显示 `SERVER_IP`。
 
 在阿里云的 `/etc/personal-site/site.env` 为三台已知虚拟机增加这三个槽，值用占位说明，真实私钥不要写进仓库：
 
@@ -190,22 +190,37 @@ REMOTE_CLOUD_2_EXPIRES_AT=2026-11-30T16:00:00Z
 | `SSH_3` | `huawei-cn-east-3` | 留空则使用该卡的 IP | 华为云 · 华东 |
 
 ```dotenv
+SERVER_SSH_USERNAME=ops
+SERVER_SSH_PRIVATE_KEY_FILE=/etc/personal-site/ssh/aliyun.key
+SERVER_SSH_HOSTKEY=SHA256:paste-from-ssh-keygen
 SSH_1_ID=cloud-01
 SSH_1_HOST=127.0.0.1
 SSH_1_PORT=22
-SSH_1_USERNAME=root
-SSH_1_PRIVATE_KEY_FILE=/etc/personal-site/ssh/aliyun.key
+REMOTE_CLOUD_1_SSH_USERNAME=ops
+REMOTE_CLOUD_1_SSH_PRIVATE_KEY_FILE=/etc/personal-site/ssh/huawei-ap-southeast-1.key
+REMOTE_CLOUD_1_SSH_HOSTKEY=SHA256:paste-from-ssh-keygen
 SSH_2_ID=huawei-ap-southeast-1
 SSH_2_PORT=22
-SSH_2_USERNAME=root
-SSH_2_PRIVATE_KEY_FILE=/etc/personal-site/ssh/huawei-ap-southeast-1.key
+REMOTE_CLOUD_2_SSH_USERNAME=ops
+REMOTE_CLOUD_2_SSH_PRIVATE_KEY_FILE=/etc/personal-site/ssh/huawei-cn-east-3.key
+REMOTE_CLOUD_2_SSH_HOSTKEY=SHA256:paste-from-ssh-keygen
 SSH_3_ID=huawei-cn-east-3
 SSH_3_PORT=22
-SSH_3_USERNAME=root
-SSH_3_PRIVATE_KEY_FILE=/etc/personal-site/ssh/huawei-cn-east-3.key
 ```
 
-密钥文件属主 `root:personal-site`，权限 640。也可以用 `SSH_N_PASSWORD_FILE` 指向密码文件，或临时把 PEM / 密码放进 `SSH_N_PRIVATE_KEY` / `SSH_N_PASSWORD`。可选 `SSH_N_HOST_FINGERPRINT=SHA256:...` 校验主机指纹。默认空闲 10 分钟断开，单会话最多 32 MB，最长 4 小时，同时最多 4 个会话。测试不拨真实虚拟机。
+优先给每台机器建一个低权限用户，把公钥写进它的 `authorized_keys`，再用上面的用户名和密钥文件登录。`SSH_N_USERNAME`、`SSH_N_PRIVATE_KEY_FILE` 和 `SSH_N_HOST_FINGERPRINT` 会覆盖对应机器上的 `SERVER_SSH_*` / `REMOTE_CLOUD_N_SSH_*`。密钥文件属主 `root:personal-site`，权限 640。
+
+还没换成密钥时，继续用 `SSH_N_PASSWORD_FILE`（或机器级的 `SERVER_SSH_PASSWORD_FILE` / `REMOTE_CLOUD_N_SSH_PASSWORD_FILE`）。两边都配置时，先试私钥，服务器拒绝后再试密码。密钥文件读不到或解析失败时直接拒绝，不会悄悄退回密码。也可以临时把 PEM / 密码放进 `SSH_N_PRIVATE_KEY` / `SSH_N_PASSWORD`。
+
+主机指纹是必填的。未配置或与服务器出示的主机密钥不一致时，终端状态栏显示「未配置主机指纹，已拒绝连接」或「主机指纹不匹配」，并且不会把密码或私钥送出去。在要连接的机器上取 SHA256 指纹：
+
+```bash
+ssh-keyscan -t ed25519,ecdsa,rsa -p 22 HOST | ssh-keygen -lf -
+```
+
+本机也可以直接看公钥文件：`ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub`。把输出里的 `SHA256:...` 写进 `SERVER_SSH_HOSTKEY` 或 `REMOTE_CLOUD_N_SSH_HOSTKEY`。一台机器有多把主机密钥时，用逗号或空格隔开多个指纹；协商到其中任何一把即可。`SSH_HOSTKEY_TOFU=1` 只在完全没配指纹时放行，不会记住第一次见到的密钥，配了指纹仍然必须匹配。这是迁移用的临时开关，确认指纹后删掉。
+
+默认空闲 10 分钟断开，单会话最多 32 MB，最长 4 小时，同时最多 4 个会话。同一登录每 10 分钟最多新开 30 次终端连接。测试不拨真实虚拟机。
 
 ## 目录与扩展
 

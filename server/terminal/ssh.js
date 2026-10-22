@@ -1,6 +1,12 @@
-import { createHash, timingSafeEqual } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
+import {
+  HOSTKEY_INVALID_MESSAGE,
+  HOSTKEY_MISMATCH_MESSAGE,
+  HOSTKEY_UNSET_MESSAGE,
+  hostKeyAccepted,
+  parseHostFingerprints,
+} from './hostkey.js';
 
 const require = createRequire(import.meta.url);
 const { Client } = require('ssh2');
@@ -9,12 +15,16 @@ export function publicSshError(error) {
   if (typeof error?.publicMessage === 'string' && error.publicMessage) return error.publicMessage;
   const code = String(error?.code || '');
   const text = `${code} ${error?.level || ''} ${error?.message || ''}`;
+  if (code === 'HOSTKEY_UNSET') return HOSTKEY_UNSET_MESSAGE;
+  if (code === 'HOSTKEY_MISMATCH') return HOSTKEY_MISMATCH_MESSAGE;
+  if (code === 'HOSTKEY_INVALID') return HOSTKEY_INVALID_MESSAGE;
   if (['ENOTFOUND', 'ECONNREFUSED', 'EHOSTUNREACH', 'ENETUNREACH', 'EAI_AGAIN'].includes(code)) {
     return '无法连接这台服务器';
   }
   if (code === 'ETIMEDOUT' || /timed out|timeout/i.test(text)) return '连接超时';
   if (code === 'EACCES' || code === 'ENOENT' || code === 'EPERM') return '这台服务器的登录凭据不可用';
-  if (/fingerprint|host key verification/i.test(text)) return '主机指纹不匹配';
+  if (/privateKey|passphrase/i.test(text)) return '这台服务器的登录凭据不可用';
+  if (/fingerprint|host key verification|verification failed|host denied/i.test(text)) return HOSTKEY_MISMATCH_MESSAGE;
   if (/authentication/i.test(text)) return '登录失败';
   return '连接失败';
 }
@@ -25,28 +35,42 @@ function failure(error) {
 }
 
 function readCredentials(target) {
+  const credentials = {};
   try {
-    if (target.privateKeyFile) return { privateKey: readFileSync(target.privateKeyFile) };
-    if (target.privateKey) return { privateKey: target.privateKey };
+    if (target.privateKeyFile) credentials.privateKey = readFileSync(target.privateKeyFile);
+    else if (target.privateKey) credentials.privateKey = target.privateKey;
     if (target.passwordFile) {
       const password = readFileSync(target.passwordFile, 'utf8').replace(/\r?\n$/, '');
       if (!password) throw Object.assign(new Error('empty password file'), { code: 'ENOENT' });
-      return { password };
-    }
-    if (target.password) return { password: target.password };
+      credentials.password = password;
+    } else if (target.password) credentials.password = target.password;
   } catch (error) {
     throw failure({ code: error?.code === 'ENOENT' ? 'ENOENT' : 'EACCES' });
   }
-  throw failure({ code: 'EACCES' });
+  if (!credentials.privateKey && !credentials.password) throw failure({ code: 'EACCES' });
+  return credentials;
 }
 
-function fingerprintMatches(expected, key) {
-  const actual = Buffer.from(`SHA256:${createHash('sha256').update(key).digest('base64').replace(/=+$/, '')}`);
-  const wanted = Buffer.from(String(expected).trim());
-  return actual.length === wanted.length && timingSafeEqual(actual, wanted);
+function logRefusal(target, code) {
+  const id = String(target?.id || 'unknown').replace(/[\u0000-\u001f\u007f]/g, '').slice(0, 80);
+  console.info(`personal-site terminal: refused target=${id} reason=${code}`);
+}
+
+function refused(target, code, publicMessage) {
+  logRefusal(target, code);
+  const error = failure({ code, publicMessage });
+  return { done: Promise.reject(error), cancel() {} };
 }
 
 export function dialSsh(target) {
+  const parsed = parseHostFingerprints(target.hostFingerprint);
+  if (String(target.hostFingerprint || '').trim() && !parsed.ok) {
+    return refused(target, 'HOSTKEY_INVALID', HOSTKEY_INVALID_MESSAGE);
+  }
+  if (!parsed.fingerprints.length && !target.trustOnFirstUse) {
+    return refused(target, 'HOSTKEY_UNSET', HOSTKEY_UNSET_MESSAGE);
+  }
+
   const client = new Client();
   let stream = null;
   let settled = false;
@@ -116,7 +140,7 @@ export function dialSsh(target) {
 
   try {
     const credentials = readCredentials(target);
-    client.connect({
+    const connectOptions = {
       host: target.dialHost,
       port: target.port || 22,
       username: target.username,
@@ -126,10 +150,21 @@ export function dialSsh(target) {
       tryKeyboard: false,
       ...credentials,
       hostVerifier(key) {
-        if (!target.hostFingerprint) return true;
-        return fingerprintMatches(target.hostFingerprint, key);
+        if (!parsed.fingerprints.length) return Boolean(target.trustOnFirstUse);
+        if (hostKeyAccepted(parsed.fingerprints, key)) return true;
+        logRefusal(target, 'HOSTKEY_MISMATCH');
+        fail({
+          code: 'HOSTKEY_MISMATCH',
+          message: 'host key verification failed',
+          publicMessage: HOSTKEY_MISMATCH_MESSAGE,
+        });
+        return false;
       },
-    });
+    };
+    if (credentials.privateKey) {
+      connectOptions.authHandler = credentials.password ? ['publickey', 'password'] : ['publickey'];
+    }
+    client.connect(connectOptions);
   } catch (error) {
     fail(error);
   }

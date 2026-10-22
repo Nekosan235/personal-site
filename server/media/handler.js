@@ -1,3 +1,4 @@
+import { secretEquals } from '../auth/compare.js';
 import { LoginRateLimiter } from '../auth/rate-limit.js';
 import { parseShareText } from './client.js';
 import { checkMediaBackends, publicMediaStatus } from './health.js';
@@ -42,7 +43,7 @@ export function createMediaHandler({
 
     if (req.method === 'POST' && pathname === '/api/media/parse') {
       const token = req.headers['x-csrf-token'];
-      if (typeof token !== 'string' || token.length === 0 || token !== session.csrf) {
+      if (!secretEquals(token, session.csrf)) {
         sendJson(res, 403, { error: MEDIA_MESSAGES.csrf });
         return;
       }

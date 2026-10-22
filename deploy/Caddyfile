@@ -17,6 +17,8 @@ http://203.0.113.10 {
 
 https://203.0.113.10 {
     import ip_certificate
+    # Short-lived IP certificate: do not add includeSubDomains or a preload token.
+    header Strict-Transport-Security "max-age=31536000"
     # /api/terminal/session is a WebSocket upgrade. reverse_proxy forwards
     # Connection and Upgrade by default; do not buffer or strip that path.
     reverse_proxy 127.0.0.1:3010
@@ -24,5 +26,9 @@ https://203.0.113.10 {
 
 https://203.0.113.10:8443 {
     import ip_certificate
+    header {
+        Strict-Transport-Security "max-age=31536000"
+        -X-Powered-By
+    }
     reverse_proxy 127.0.0.1:3001
 }
