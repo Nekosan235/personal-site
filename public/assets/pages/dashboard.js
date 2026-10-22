@@ -4,7 +4,23 @@ import { createMetricPanel, readMetric, readMetricView, setMetricViewMode, subsc
 import { createPoller } from '../components/poller.js?v=1.4.0';
 import { createWelcomeRotation } from '../components/welcome.js?v=1.4.0';
 import { icon } from '../components/icons.js?v=1.4.0';
-import { renderHomeProjects } from '../components/portfolio-view.js?v=1.5.0';
+import { renderHomeProjects } from '../components/portfolio-view.js?v=1.11.0';
+import {
+  bindModuleDrag,
+  createDeviceRename,
+  createLayoutPlaceholder,
+  defaultModuleOrder,
+  deviceLayoutId,
+  dragMode,
+  dropOrder,
+  expiryPresentation,
+  moduleOrderFrom,
+  nudgedOrder,
+  placeChildren,
+  readDashboardLayout,
+  resetModuleOrder,
+  writeModuleOrder,
+} from '../components/dashboard-layout.js?v=1.11.0';
 
 const intervalMs = 5000;
 const timeFormat = new Intl.DateTimeFormat('zh-CN', {
@@ -109,13 +125,18 @@ function setText(node, value) {
   if (node.textContent !== value) node.textContent = value;
 }
 
-function createDeviceView({ now, index, signal }) {
+function createDeviceView({ now, index, signal, storage }) {
   const notice = element('p', {
     className: 'device-note', text: '正在获取设备数据…',
     attributes: { role: 'status' },
   });
   const headingId = `device-name-${index}`;
   const name = element('h2', { className: 'device-name', text: '设备', attributes: { id: headingId } });
+  const rename = createDeviceRename({
+    storage,
+    onName: (value) => setText(name, value),
+  });
+  const expiry = element('p', { className: 'device-expiry', text: '到期 未设置' });
   const kind = element('p', { className: 'eyebrow', text: '设备监控' });
   const status = element('span', { className: 'server-status badge bg-secondary-lt', text: '连接中' });
   const cpu = createMetricPanel('CPU', {
@@ -151,7 +172,11 @@ function createDeviceView({ now, index, signal }) {
     element('div', { className: 'server-heading card-header' }, [
       element('div', { className: 'device-identity' }, [
         element('span', { className: 'device-avatar avatar bg-blue-lt' }, [icon('server', 'icon')]),
-        element('div', {}, [kind, name]),
+        element('div', { className: 'device-copy' }, [
+          kind,
+          element('div', { className: 'device-title-row' }, [name, rename.editButton]),
+          rename.form,
+        ]),
       ]),
       element('div', { className: 'server-heading-actions' }, [viewToggle.element, status]),
     ]),
@@ -162,6 +187,7 @@ function createDeviceView({ now, index, signal }) {
     ]),
   ]));
   page.append(element('div', { className: 'device-footer card-footer' }, [
+    expiry,
     element('div', { className: 'monitoring-meta' }, [
       element('p', { className: 'updated-at' }, [sampledAtLabel, sampledAtTime]), refreshHint, failureTime,
     ]),
@@ -239,7 +265,13 @@ function createDeviceView({ now, index, signal }) {
       sampledAtTime.setAttribute('datetime', sampledAt.toISOString());
     }
     if (server) {
-      if (typeof server.name === 'string' || typeof data?.name === 'string') setText(name, server.name || data.name);
+      const configName = (typeof server.name === 'string' && server.name)
+        || (typeof data?.name === 'string' && data.name)
+        || '';
+      const layoutId = deviceLayoutId({ ...data, server });
+      page.setAttribute('data-server-id', layoutId);
+      if (!rename.isOpen()) setText(name, rename.setSource(layoutId, configName));
+      else rename.setSource(layoutId, configName);
       const nas = data?.type === 'nas' || data?.kind === 'nas' || server.kind === 'nas';
       setText(factLabels.get('region'), nas ? '设备类型' : '位置');
       setText(factLabels.get('ip'), nas ? '主机地址' : 'IP 地址');
@@ -274,6 +306,9 @@ function createDeviceView({ now, index, signal }) {
     for (const [key, panel] of volumes) if (!seen.has(key)) panel.update(null, { stale: true });
     const hasVolumes = volumes.size > 0;
     volumeList.toggleAttribute('hidden', !hasVolumes);
+    const renewal = expiryPresentation(data?.expiresAt ?? server?.expiresAt, now());
+    setText(expiry, renewal.text);
+    expiry.classList.toggle('is-expired', renewal.expired);
     showHealth();
   }
 
@@ -305,7 +340,24 @@ function createDeviceView({ now, index, signal }) {
   return { element: page, update, fail, activity, get health() { return paused ? 'paused' : health; } };
 }
 
-export function createDashboardView({ modules, now = Date.now, signal } = {}) {
+function prepend(parent, node) {
+  if (typeof parent.replaceChildren === 'function') {
+    parent.replaceChildren(node, ...parent.children);
+    return;
+  }
+  parent.children.unshift(node);
+  node.parentNode = parent;
+}
+
+function usableRect(node) {
+  if (!node || typeof node.getBoundingClientRect !== 'function') return null;
+  const rect = node.getBoundingClientRect();
+  if (!rect || !Number.isFinite(rect.top) || !Number.isFinite(rect.left)) return null;
+  if ((rect.width || 0) <= 0 && (rect.height || 0) <= 0) return null;
+  return rect;
+}
+
+export function createDashboardView({ modules, now = Date.now, signal, storage } = {}) {
   const badge = element('span', { className: 'monitor-badge badge bg-blue-lt', text: '实时监控' });
   const notice = element('p', {
     className: 'data-notice monitoring-notice', text: '正在获取设备数据…',
@@ -314,14 +366,140 @@ export function createDashboardView({ modules, now = Date.now, signal } = {}) {
   const heading = pageHeading('欢迎回来', '你的设备与常用工具，都在这里。', badge);
   const title = heading.children[0].children[0];
   const list = element('div', { className: 'device-list', attributes: { 'aria-label': '设备监控' } });
-  const page = element('div', { className: 'dashboard-page page-enter' }, [heading, renderHomeProjects(), notice, list]);
+  const work = renderHomeProjects();
+  work.setAttribute('data-dashboard-module', 'work');
+  const monitor = element('div', {
+    className: 'dashboard-module',
+    attributes: { 'data-dashboard-module': 'monitor' },
+  });
+  const moduleNodes = new Map([['work', work], ['monitor', monitor]]);
+  const placeholders = {
+    work: createLayoutPlaceholder('作品'),
+    monitor: createLayoutPlaceholder('监控'),
+  };
+  const board = element('div', {
+    className: 'dashboard-board',
+    attributes: { 'data-layout-editing': 'false', 'aria-label': '作品与监控' },
+  });
+  let editing = false;
+  let draggingId = null;
+  let preview = null;
+  const cleanups = [];
+
+  function renderBoard(order, placeholderFor) {
+    const nodes = [];
+    for (const id of order) {
+      nodes.push(placeholderFor === id ? placeholders[id] : moduleNodes.get(id));
+    }
+    placeChildren(board, nodes);
+    board.setAttribute('data-module-order', order.join(','));
+    for (const [id, node] of moduleNodes) node.classList.toggle('is-dragging', id === placeholderFor);
+  }
+
+  function commit(order) {
+    const next = writeModuleOrder(order, storage).order;
+    draggingId = null;
+    preview = null;
+    renderBoard(next, null);
+    return next;
+  }
+
+  function move(id, direction) {
+    commit(nudgedOrder(draggingId ? preview : moduleOrderFrom(board), id, direction));
+  }
+
+  function measure() {
+    const rects = {};
+    for (const [id, node] of moduleNodes) {
+      const standIn = draggingId === id ? placeholders[id] : node;
+      rects[id] = usableRect(standIn) || usableRect(node);
+    }
+    return rects;
+  }
+
+  function moduleBar(id, label) {
+    const handle = element('button', {
+      className: 'layout-handle',
+      text: '拖动',
+      attributes: { type: 'button', 'aria-label': `拖动${label}模块`, 'data-layout-handle': id },
+    });
+    const up = element('button', {
+      className: 'layout-nudge',
+      text: '上移',
+      attributes: { type: 'button', 'data-layout-move': 'up', 'data-module': id, 'aria-label': `${label}上移` },
+    });
+    const down = element('button', {
+      className: 'layout-nudge',
+      text: '下移',
+      attributes: { type: 'button', 'data-layout-move': 'down', 'data-module': id, 'aria-label': `${label}下移` },
+    });
+    up.addEventListener('click', () => move(id, 'up'));
+    down.addEventListener('click', () => move(id, 'down'));
+    cleanups.push(bindModuleDrag(handle, {
+      getMode: () => dragMode({ editing }),
+      onDragStart: (event) => {
+        if (event.longPress) setEditing(true);
+        draggingId = id;
+        preview = moduleOrderFrom(board);
+        const source = moduleNodes.get(id);
+        const slot = placeholders[id];
+        const height = usableRect(source)?.height || source.offsetHeight || 0;
+        if (slot.style && height > 0) slot.style.minHeight = `${Math.max(72, Math.round(height))}px`;
+        renderBoard(preview, id);
+      },
+      onDrag: (event) => {
+        if (!draggingId || !preview) return;
+        const next = dropOrder(preview, draggingId, { x: event.clientX ?? 0, y: event.clientY ?? 0 }, measure());
+        if (next.join(',') !== preview.join(',')) {
+          preview = next;
+          renderBoard(preview, draggingId);
+        }
+      },
+      onDrop: () => {
+        if (!draggingId) return;
+        commit(preview || defaultModuleOrder);
+      },
+    }));
+    return element('div', { className: 'layout-module-bar' }, [handle, up, down]);
+  }
+
+  function setEditing(next) {
+    editing = Boolean(next);
+    board.setAttribute('data-layout-editing', editing ? 'true' : 'false');
+    editButton.setAttribute('aria-pressed', editing ? 'true' : 'false');
+    setText(editButton, editing ? '完成整理' : '整理布局');
+  }
+
+  const editButton = element('button', {
+    className: 'btn btn-outline-primary layout-edit',
+    text: '整理布局',
+    attributes: { type: 'button', 'aria-pressed': 'false' },
+  });
+  const resetButton = element('button', {
+    className: 'btn btn-outline-primary layout-reset',
+    text: '恢复默认布局',
+    attributes: { type: 'button' },
+  });
+  editButton.addEventListener('click', () => setEditing(!editing));
+  resetButton.addEventListener('click', () => commit(defaultModuleOrder));
+  prepend(work, moduleBar('work', '作品'));
+  monitor.append(moduleBar('monitor', '监控'), notice, list);
+  renderBoard(readDashboardLayout(storage).order, null);
+  const toolbar = element('div', {
+    className: 'layout-toolbar',
+    attributes: { role: 'group', 'aria-label': '概览布局' },
+  }, [editButton, resetButton]);
+  const page = element('div', { className: 'dashboard-page page-enter' }, [heading, toolbar, board]);
+  signal?.addEventListener?.('abort', () => {
+    for (const stop of cleanups) stop();
+  }, { once: true });
   const links = [internalLink('/tools', '查看工具箱', 'btn btn-outline-primary')];
   const codex = modules.find((module) => module.id === 'codex-web');
   const href = codex && safeExternalHref(codex.href);
   if (href) links.push(externalLink(href, '打开 Codex Web', 'btn btn-primary'));
   page.append(element('div', { className: 'dashboard-links' }, links));
   let nextIndex = 1;
-  const primary = createDeviceView({ now, index: nextIndex, signal });
+  const primary = createDeviceView({ now, index: nextIndex, signal, storage });
   const devices = new Map([['primary', primary]]);
   list.append(primary.element);
 
@@ -359,7 +537,7 @@ export function createDashboardView({ modules, now = Date.now, signal } = {}) {
           devices.delete('primary');
           devices.set(key, primary);
         } else {
-          const view = createDeviceView({ now, index: ++nextIndex, signal });
+          const view = createDeviceView({ now, index: ++nextIndex, signal, storage });
           devices.set(key, view);
           list.append(view.element);
         }

@@ -495,11 +495,12 @@ export function createApplication(options = {}) {
           const dashboard = dashboardProvider
             ? await dashboardProvider.getDashboard()
             : getDashboardMock(new Date(now()));
-          dashboard.devices = [
-            cloudDashboardDevice(dashboard, config),
-            ...nasMonitorStore.getDashboards(),
-          ];
-          return sendJson(res, 200, dashboard);
+          const local = cloudDashboardDevice(dashboard, config);
+          return sendJson(res, 200, {
+            ...dashboard,
+            server: local.server ?? dashboard.server,
+            devices: [local, ...nasMonitorStore.getDashboards()],
+          });
         }
 
         return sendJson(res, 404, { error: 'not found' });

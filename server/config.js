@@ -45,6 +45,41 @@ function isLoopbackHttpUrl(value) {
 
 const REMOTE_CLOUD_SLOTS = 8;
 
+function validCalendarDate(text) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(text);
+  if (!match) return false;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const utc = new Date(Date.UTC(year, month - 1, day));
+  return utc.getUTCFullYear() === year && utc.getUTCMonth() === month - 1 && utc.getUTCDate() === day;
+}
+
+export function shanghaiCalendarDate(instant) {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Asia/Shanghai',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(new Date(instant));
+  const map = {};
+  for (const part of parts) map[part.type] = part.value;
+  const text = `${map.year}-${map.month}-${map.day}`;
+  return validCalendarDate(text) ? text : null;
+}
+
+export function normalizeExpiresAt(value) {
+  if (typeof value !== 'string') return null;
+  const text = value.trim();
+  if (!text) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return validCalendarDate(text) ? text : null;
+  const zoned = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?$/.test(text) ? `${text}+08:00` : text;
+  if (!/^\d{4}-\d{2}-\d{2}T/.test(zoned)) return null;
+  const time = Date.parse(zoned);
+  if (!Number.isFinite(time)) return null;
+  return shanghaiCalendarDate(time);
+}
+
 function loadRemoteDevices(overrides, env, nas) {
   if (Array.isArray(overrides.remoteDevices) && overrides.remoteDevices.length > 0) {
     return overrides.remoteDevices;
@@ -58,6 +93,7 @@ function loadRemoteDevices(overrides, env, nas) {
     host: nas.host,
     ip: null,
     secret: nas.secret,
+    expiresAt: normalizeExpiresAt(nas.expiresAt),
   }];
   for (let index = 1; index <= REMOTE_CLOUD_SLOTS; index += 1) {
     const id = textValue(overrides, env, `remoteCloud${index}Id`, `REMOTE_CLOUD_${index}_ID`);
@@ -74,6 +110,12 @@ function loadRemoteDevices(overrides, env, nas) {
       host: ip || null,
       ip: ip || null,
       secret,
+      expiresAt: normalizeExpiresAt(textValue(
+        overrides,
+        env,
+        `remoteCloud${index}ExpiresAt`,
+        `REMOTE_CLOUD_${index}_EXPIRES_AT`,
+      )),
     });
   }
   return devices;
@@ -154,7 +196,9 @@ export function loadConfig(env = process.env, overrides = {}) {
     serverName: pick(overrides, env, 'serverName', 'SERVER_NAME', 'Cloud 01'),
     serverRegion: pick(overrides, env, 'serverRegion', 'SERVER_REGION', '上海 · 阿里云'),
     serverIp: pick(overrides, env, 'serverIp', 'SERVER_IP', '203.0.113.10'),
+    serverExpiresAt: normalizeExpiresAt(textValue(overrides, env, 'serverExpiresAt', 'SERVER_EXPIRES_AT')),
     nasMonitorSecret: pick(overrides, env, 'nasMonitorSecret', 'NAS_MONITOR_SECRET', ''),
+    nasDeviceExpiresAt: normalizeExpiresAt(textValue(overrides, env, 'nasDeviceExpiresAt', 'NAS_DEVICE_EXPIRES_AT')),
     nasDeviceId: pick(overrides, env, 'nasDeviceId', 'NAS_DEVICE_ID', 'fnos-nas'),
     nasDeviceName: pick(overrides, env, 'nasDeviceName', 'NAS_DEVICE_NAME', 'fnOS NAS'),
     nasDeviceHost: pick(overrides, env, 'nasDeviceHost', 'NAS_DEVICE_HOST', 'nas.local:5666'),
@@ -187,6 +231,7 @@ export function loadConfig(env = process.env, overrides = {}) {
       name: pick(overrides, env, 'nasDeviceName', 'NAS_DEVICE_NAME', 'fnOS NAS'),
       host: pick(overrides, env, 'nasDeviceHost', 'NAS_DEVICE_HOST', 'nas.local:5666'),
       secret: pick(overrides, env, 'nasMonitorSecret', 'NAS_MONITOR_SECRET', ''),
+      expiresAt: textValue(overrides, env, 'nasDeviceExpiresAt', 'NAS_DEVICE_EXPIRES_AT'),
     }),
     sshIdleTimeoutMs: boundedNumber(
       pick(overrides, env, 'sshIdleTimeoutMs', 'SSH_IDLE_TIMEOUT_MS', 10 * 60 * 1000),
@@ -232,6 +277,7 @@ export function loadConfig(env = process.env, overrides = {}) {
         name: pick(overrides, env, 'nasDeviceName', 'NAS_DEVICE_NAME', 'fnOS NAS'),
         host: pick(overrides, env, 'nasDeviceHost', 'NAS_DEVICE_HOST', 'nas.local:5666'),
         secret: pick(overrides, env, 'nasMonitorSecret', 'NAS_MONITOR_SECRET', ''),
+        expiresAt: textValue(overrides, env, 'nasDeviceExpiresAt', 'NAS_DEVICE_EXPIRES_AT'),
       }),
     ]),
   };

@@ -383,9 +383,11 @@ export class NasMonitorStore {
       refreshIntervalMs: this.config.nasReportIntervalMs,
       stale,
       error: stale ? { code: 'stale_report', message: staleMessage } : null,
+      expiresAt: meta.expiresAt || null,
       server: {
         ...state.lastReport.server,
         status: stale ? 'offline' : 'online',
+        expiresAt: meta.expiresAt || null,
       },
       metrics: {
         cpu: cpuWithHistory(state.lastReport.server.cpuPercent, state.cpuHistory),
@@ -421,6 +423,7 @@ export class NasMonitorStore {
       refreshIntervalMs: this.config.nasReportIntervalMs,
       stale: false,
       error: { code: 'waiting_for_report', message: waitingMessage },
+      expiresAt: device.expiresAt || null,
       server: {
         id: device.id,
         name: device.name,
@@ -433,6 +436,7 @@ export class NasMonitorStore {
         uptimeSeconds: null,
         cpuPercent: null,
         loadAverage: null,
+        expiresAt: device.expiresAt || null,
       },
       metrics: {
         cpu: emptyCpuMetric(),
@@ -470,6 +474,10 @@ export class NasMonitorStore {
 }
 
 export function cloudDashboardDevice(dashboard, config) {
+  const expiresAt = config?.serverExpiresAt || null;
+  const server = dashboard.server && typeof dashboard.server === 'object'
+    ? { ...dashboard.server, expiresAt }
+    : dashboard.server;
   return {
     id: 'liveCloud',
     name: dashboard.server?.name ?? config.serverName,
@@ -480,7 +488,8 @@ export function cloudDashboardDevice(dashboard, config) {
     refreshIntervalMs: dashboard.refreshIntervalMs ?? config.monitoringRefreshIntervalMs,
     stale: Boolean(dashboard.stale),
     error: dashboard.error ?? null,
-    server: dashboard.server,
+    expiresAt,
+    server,
     metrics: dashboard.metrics,
   };
 }
