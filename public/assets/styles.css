@@ -698,6 +698,32 @@ input[type="number"], .form-control[inputmode="decimal"] { font-family: var(--fo
 .media-history-button:hover { background: var(--surface-3); }
 .media-history-button .media-history-platform { flex: none; color: var(--accent); font-family: var(--mono); font-size: 11px; }
 .media-history-title { min-width: 0; overflow-wrap: anywhere; }
+.media-entries { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.media-entry-tab {
+  display: flex; flex-direction: column; align-items: flex-start; justify-content: center;
+  min-height: 48px; padding: 8px 12px; border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--paper); color: var(--text); font: inherit; text-align: left; cursor: pointer;
+}
+.media-entry-tab[aria-selected="true"] {
+  color: var(--accent); border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, var(--paper));
+}
+.media-entry-name { font-size: 16px; font-weight: 650; letter-spacing: .02em; }
+.media-entry-hint { color: var(--text-muted); font-family: var(--mono); font-size: 12px; }
+.media-entry-tab[aria-selected="true"] .media-entry-hint { color: var(--accent); }
+.media-entry { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.media-entry-note { margin: 0; color: var(--text-muted); font-size: 13px; line-height: 1.6; }
+.media-quality-list { display: flex; flex-direction: column; gap: 8px; }
+.media-quality {
+  display: flex; flex-direction: column; align-items: flex-start; justify-content: center;
+  width: 100%; height: auto; min-height: 48px; padding: 8px 12px; white-space: normal; text-align: left;
+}
+.media-quality.is-selected { color: var(--accent); border-color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, var(--paper)); }
+.media-quality-label { font-size: 15px; line-height: 1.4; overflow-wrap: anywhere; }
+.media-quality-gear { color: var(--text-muted); font-family: var(--mono); font-size: 12px; }
+.media-chosen { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.media-chosen:empty { display: none; }
+.media-field { display: flex; flex-direction: column; gap: 8px; }
 @media (max-width: 575.98px) {
   .media-actions { flex-direction: column; }
   .media-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }

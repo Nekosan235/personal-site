@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { once } from 'node:events';
 import { isAllowedCdn, isBlockedAddress } from '../server/media/allowlist.js';
-import { createCdnTransport } from '../server/media/cdn.js';
+import { cdnRequestHeaders, createCdnTransport } from '../server/media/cdn.js';
 import { MEDIA_MESSAGES } from '../server/media/errors.js';
 
 function listen(handler) {
@@ -27,12 +27,16 @@ test('CDN allowlist accepts known hosts and rejects open-proxy targets', () => {
   assert.equal(isAllowedCdn('https://ci.xiaohongshu.com/demo-a?imageView2/format/png'), true);
   assert.equal(isAllowedCdn('https://sns-img-qc.xhscdn.com/cover.jpg'), true);
   assert.equal(isAllowedCdn('https://v26-web.douyinvod.com/video/example.mp4'), true);
+  assert.equal(isAllowedCdn('https://aweme.snssdk.com/aweme/v1/play/?video_id=v0300fg10000examplevideo0000000001&ratio=default&line=0'), true);
+  assert.equal(isAllowedCdn('https://v5-dy.zjcdn.com/video/tos/high.mp4'), true);
   assert.equal(isAllowedCdn('https://p3-sign.douyinpic.com/cover.jpeg'), true);
   assert.equal(isAllowedCdn('https://p9-sign.douyinpic.com/b.webp'), true);
   assert.equal(isAllowedCdn('http://127.0.0.1/secret'), false);
   assert.equal(isAllowedCdn('http://169.254.169.254/latest/meta-data'), false);
   assert.equal(isAllowedCdn('https://evil.example/a.jpg'), false);
   assert.equal(isAllowedCdn('https://xhscdn.com.evil.example/a.jpg'), false);
+  assert.equal(isAllowedCdn('https://aweme.snssdk.com.evil.example/aweme/v1/play/'), false);
+  assert.equal(isAllowedCdn('https://evil.example/aweme/v1/play/?video_id=v0300fg10000examplevideo0000000001'), false);
   assert.equal(isAllowedCdn('https://www.xiaohongshu.com/explore/1'), false);
   assert.equal(isAllowedCdn('https://user:pass@ci.xiaohongshu.com/a.jpg'), false);
   assert.equal(isAllowedCdn('https://ci.xiaohongshu.com:8443/a.jpg'), false);
@@ -52,7 +56,7 @@ test('blocked addresses include loopback, link-local, and private ranges', () =>
 test('forwards the client Range header and a platform Referer to the upstream', async (t) => {
   let seen = null;
   const upstream = await listen((req, res) => {
-    seen = { range: req.headers.range, referer: req.headers.referer, agent: req.headers['user-agent'] };
+    seen = { range: req.headers.range, referer: req.headers.referer, origin: req.headers.origin, agent: req.headers['user-agent'] };
     res.writeHead(206, {
       'Content-Type': 'video/mp4',
       'Content-Range': 'bytes 0-3/10',
@@ -75,7 +79,11 @@ test('forwards the client Range header and a platform Referer to the upstream', 
   assert.equal(result.statusCode, 206);
   assert.equal(seen.range, 'bytes=0-3');
   assert.equal(seen.referer, 'https://www.douyin.com/');
+  assert.equal(seen.origin, undefined);
   assert.match(seen.agent, /Chrome/);
+  const douyinHeaders = cdnRequestHeaders('douyin', 'bytes=0-1');
+  assert.equal(douyinHeaders.Referer, 'https://www.douyin.com/');
+  assert.equal(douyinHeaders.Origin, undefined);
 
   const xhs = await transport({
     url: `http://ci.xiaohongshu.com:${port}/a.jpg`,

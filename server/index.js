@@ -273,6 +273,8 @@ export function createApplication(options = {}) {
     transport: options.mediaTransport,
     parseLimiter: options.mediaRateLimiter,
     healthLimiter: options.mediaHealthRateLimiter,
+    douyinFetch: options.douyinFetch,
+    douyinLookup: options.douyinLookup,
     now,
     securityHeaders: (contentType) => securityHeaders(contentType, hstsEnabled),
   });

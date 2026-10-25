@@ -47,7 +47,7 @@ export function getModules(config) {
       nav: false,
       status: 'ready',
       group: 'tools',
-      description: '粘贴小红书或抖音分享，解析无水印图片和视频并保存到手机。',
+      description: '粘贴小红书或抖音分享。抖音可选 DouK，或免 Cookie 的清晰度入口。',
     },
     {
       id: 'codex-web',

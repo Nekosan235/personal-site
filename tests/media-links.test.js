@@ -35,6 +35,7 @@ test('reads a Douyin aweme id from resolved share URLs', () => {
   assert.equal(douyinDetailId('https://www.douyin.com/note/7123456789012345678/'), '7123456789012345678');
   assert.equal(douyinDetailId('https://www.iesdouyin.com/share/video/7123456789012345678/'), '7123456789012345678');
   assert.equal(douyinDetailId('https://www.douyin.com/discover?modal_id=7123456789012345678'), '7123456789012345678');
+  assert.equal(douyinDetailId('https://www.douyin.com/video/111111111111111111?modal_id=222222222222222222'), '222222222222222222');
   assert.equal(douyinDetailId('https://v.douyin.com/iABC123/'), null);
 });
 

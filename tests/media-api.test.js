@@ -16,6 +16,7 @@ import { hashPassword } from '../server/auth/password.js';
 import { LoginRateLimiter } from '../server/auth/rate-limit.js';
 import { clearXhsTokenCache } from '../server/media/token.js';
 import { signMediaTarget } from '../server/media/proxy.js';
+import { isAllowedCdn } from '../server/media/allowlist.js';
 import { MEDIA_MESSAGES } from '../server/media/errors.js';
 
 const exec = promisify(execFile);
@@ -352,8 +353,124 @@ test('the media page is login-only and a public API URL is rejected', async (t) 
   assert.match(page, /解析/);
   assert.match(page, /长按图片保存/);
   assert.match(page, /仅供个人保存自己或已获授权的内容/);
+  assert.match(page, /入口 1/);
+  assert.match(page, /入口 2/);
+  assert.match(page, /\/api\/media\/douyin\/entry2/);
   const app = await readFile(new URL('../public/assets/app.js', import.meta.url), 'utf8');
   assert.match(app, /\['media-download', renderMediaDownload\]/);
+});
+
+function publicLookup(hostname, options, callback) {
+  if (typeof options === 'function') {
+    callback = options;
+    options = {};
+  }
+  const entry = { address: '1.1.1.1', family: 4 };
+  if (options.all) callback(null, [entry]);
+  else callback(null, entry.address, entry.family);
+}
+
+test('entry 2 returns proxied qualities without DouK or a Douyin cookie', async (t) => {
+  const awemeId = '7123456789012345678';
+  const videoId = 'v0300fg10000examplevideo0000000001';
+  const calls = [];
+  const douk = [];
+  const f = await appFixture(t, { DOUYIN_COOKIE: 'session=secret' }, {
+    mediaRateLimiter: new LoginRateLimiter({ windowMs: 60_000, maxAttempts: 1 }),
+    douyinLookup: publicLookup,
+    mediaFetch: async (url) => {
+      douk.push(String(url));
+      return Response.json({});
+    },
+    douyinFetch: async (url, init) => {
+      calls.push({ url: String(url), headers: init.headers });
+      if (String(url).includes('jingxuan')) return new Response('"play_count":7', { status: 200 });
+      return Response.json({
+        status_code: 0,
+        aweme_detail: {
+          aweme_id: awemeId,
+          desc: '入口 2 示例',
+          author: { nickname: '作者' },
+          video: {
+            play_addr: { uri: videoId },
+            bit_rate: [{
+              gear_name: 'normal_720_0',
+              bit_rate: 800000,
+              FPS: 30,
+              is_h265: 0,
+              play_addr: {
+                width: 1280,
+                height: 720,
+                data_size: 5000000,
+                url_list: ['https://v26-web.douyinvod.com/video/chosen.mp4', 'https://evil.example/x.mp4'],
+              },
+            }],
+          },
+        },
+      });
+    },
+  });
+  assert.equal((await f.request('/api/media/douyin/entry2', {
+    method: 'POST',
+    body: { text: `https://v.douyin.com/iABC123/` },
+  })).status, 401);
+  const csrf = await f.login();
+  assert.equal((await f.request('/api/media/douyin/entry2', {
+    method: 'POST',
+    body: { text: `https://www.douyin.com/video/${awemeId}` },
+  })).status, 403);
+  const response = await f.request('/api/media/douyin/entry2', {
+    method: 'POST',
+    body: { text: `https://www.douyin.com/video/${awemeId}` },
+    headers: { 'X-CSRF-Token': csrf },
+  });
+  assert.equal(response.status, 200);
+  const work = await response.json();
+  assert.equal(work.entry, 2);
+  assert.equal(work.playCount, 7);
+  assert.equal(work.qualities[0].label, '原画');
+  assert.match(work.qualities[1].label, /1280×720/);
+  assert.match(work.qualities[1].label, /H\.264/);
+  const body = JSON.stringify(work);
+  assert.doesNotMatch(body, /session=secret|evil\.example|playwm|127\.0\.0\.1/);
+  for (const quality of work.qualities) {
+    assert.match(quality.url, /^\/api\/media\/file\?/);
+    const payload = JSON.parse(Buffer.from(new URL(quality.url, ORIGIN).searchParams.get('d'), 'base64url').toString());
+    assert.equal(isAllowedCdn(payload.url), true);
+    assert.equal(payload.platform, 'douyin');
+    assert.doesNotMatch(payload.url, /playwm|\/logo\/|evil\.example/);
+  }
+  const original = JSON.parse(Buffer.from(new URL(work.qualities[0].url, ORIGIN).searchParams.get('d'), 'base64url').toString());
+  assert.equal(new URL(original.url).searchParams.get('video_id'), videoId);
+  assert.equal(new URL(original.url).hostname, 'aweme.snssdk.com');
+  const detail = calls.find((call) => call.url.includes('/aweme/v1/web/aweme/detail/'));
+  assert.equal(detail.headers.Origin, 'https://open.douyin.com');
+  assert.equal(detail.headers.Cookie, undefined);
+  assert.equal(douk.length, 0);
+  const limited = await f.request('/api/media/douyin/entry2', {
+    method: 'POST',
+    body: { text: `https://www.douyin.com/video/${awemeId}` },
+    headers: { 'X-CSRF-Token': csrf },
+  });
+  assert.equal(limited.status, 429);
+
+  const redirected = [];
+  const blocked = await appFixture(t, {}, {
+    douyinLookup: publicLookup,
+    douyinFetch: async (url) => {
+      redirected.push(String(url));
+      return new Response('', { status: 302, headers: { Location: 'https://evil.example/steal' } });
+    },
+  });
+  const csrf2 = await blocked.login();
+  const offsite = await blocked.request('/api/media/douyin/entry2', {
+    method: 'POST',
+    body: { text: 'https://v.douyin.com/iABC123/' },
+    headers: { 'X-CSRF-Token': csrf2 },
+  });
+  assert.equal(offsite.status, 400);
+  assert.equal((await offsite.json()).error, MEDIA_MESSAGES.douyinEntry2Redirect);
+  assert.deepEqual(redirected, ['https://v.douyin.com/iABC123/']);
 });
 
 function listen(handler) {

@@ -18,7 +18,7 @@ Tabler 样式位于 `public/assets/vendor/tabler/tabler.min.css`，上游许可�
 - 浏览器本地 GIF 工具：逐帧去白、逐帧画笔/撤销、播放预览与透明 GIF 导出，保留帧延时和循环信息。
 - 图片最大 10 MB/3200 万原始像素；GIF 最大 8 MB、60 帧、15 秒/3200 万逻辑像素，导出最大 480px 长边/20 MB。文件仅在浏览器本地处理，不上传服务器。
 - 格式转换：浏览器本地处理图片、Markdown、JSON、YAML、CSV、Base64、URL 和文本，见下文。HEIC、PDF 与音视频保持不可用。
-- 无水印下载：粘贴小红书或抖音分享文字，由本机解析服务取出图片或视频，再经站点代理保存。见下文。
+- 无水印下载：粘贴小红书或抖音分享文字，解析图片或视频后经站点代理保存。抖音入口 2 不需要本机 DouK，也不需要 Cookie。见下文。
 - 终端：登录后从侧边栏进入 `/terminal`。右侧列出监控里已经登记的服务器，点一台才连接；断开会立刻关掉 SSH。见下文。
 - Agent 与智能抠图保持清晰标注的待开放入口；Codex Web 外链由环境变量配置。
 
@@ -39,8 +39,9 @@ Tabler 样式位于 `public/assets/vendor/tabler/tabler.min.css`，上游许可�
 工具箱里的「无水印下载」面向手机浏览器。页面接受整段分享文字，抽出小红书或抖音链接后调用本机已经在跑的解析服务。服务只监听回环地址，由各自的进程部署，网站不负责启动它们。
 
 - 小红书使用 XHS-Downloader 的 `POST /xhs/detail`，请求体 `{url, download:false}`。开发分支的接口需要 `Authorization: Bearer`。令牌放在 `XHS_API_TOKEN`，或由 `XHS_API_TOKEN_FILE` 指向的文件提供（服务器上为 `/etc/media-dl/xhs-api.token`，属组 `personal-site`，权限 640）。空数据或「获取小红书作品数据失败」会提示换带 `xsec_token` 的完整分享链接。
-- 抖音使用 DouK-Downloader 的 `POST /douyin/share` 解开短链，再 `POST /douyin/detail`。默认不校验令牌。可选 `DOUYIN_COOKIE` 会放进 detail 的 `cookie` 字段。返回「获取数据失败！」时页面显示「抖音 Cookie 可能失效」。
-- 媒体文件只从允许的小红书、抖音 CDN 域名回源，并转发浏览器的 Range 请求。代理链接大约 15 分钟后失效。
+- 抖音入口 1 使用 DouK-Downloader 的 `POST /douyin/share` 解开短链，再 `POST /douyin/detail`。默认不校验令牌。可选 `DOUYIN_COOKIE` 会放进 detail 的 `cookie` 字段。返回「获取数据失败！」时页面显示「抖音 Cookie 可能失效」。
+- 抖音入口 2 不读取 `DOUYIN_COOKIE`、`DOUYIN_API_TOKEN` 或 `DOUYIN_API_URL`，也没有单独的环境变量。它从分享链接取出作品编号，向抖音网页详情接口要清晰度列表，再用本站代理下载。详情或播放地址拿不到时，页面提示改用入口 1，不会自动改走 Cookie。播放量只在详情返回时已经拿到才显示，不会为了它继续等待。
+- 媒体文件只从允许的小红书、抖音 CDN 域名回源，并转发浏览器的 Range 请求。代理不会把站点来源的 Referer 转给 CDN。代理链接大约 15 分钟后失效。
 - 每天检查：`node --env-file=/etc/personal-site/site.env scripts/media-selfcheck.js`。小红书检查会带上 Bearer 令牌，任一端失败时退出码非 0。
 
 仅供保存自己或已获授权的内容。
