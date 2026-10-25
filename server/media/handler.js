@@ -1,6 +1,8 @@
 import { secretEquals } from '../auth/compare.js';
 import { LoginRateLimiter } from '../auth/rate-limit.js';
 import { parseShareText } from './client.js';
+import { safeLookup } from './cdn.js';
+import { createDouyinFetch, parseDouyinEntry2 } from './douyin-direct.js';
 import { checkMediaBackends, publicMediaStatus } from './health.js';
 import { createMediaSigner, defaultMediaTransport, pipeMediaFile, verifyMediaTarget } from './proxy.js';
 import { MEDIA_MESSAGES, MediaError } from './errors.js';
@@ -19,10 +21,13 @@ export function createMediaHandler({
   transport = defaultMediaTransport(),
   parseLimiter = new LoginRateLimiter({ windowMs: 10 * 60 * 1000, maxAttempts: 20 }),
   healthLimiter = new LoginRateLimiter({ windowMs: 10 * 60 * 1000, maxAttempts: 30 }),
+  douyinFetch,
+  douyinLookup = safeLookup,
   now = () => Date.now(),
   securityHeaders,
 }) {
   const proxify = createMediaSigner(config.authSecret, config.mediaProxyTtlMs, now);
+  const entryFetch = douyinFetch ?? createDouyinFetch({ lookup: douyinLookup });
 
   async function handle(req, res, { pathname, url, session, readJson }) {
     const sendJson = (response, status, payload, extra) => sendMediaJson(response, status, payload, securityHeaders, extra);
@@ -41,17 +46,7 @@ export function createMediaHandler({
       return;
     }
 
-    if (req.method === 'POST' && pathname === '/api/media/parse') {
-      const token = req.headers['x-csrf-token'];
-      if (!secretEquals(token, session.csrf)) {
-        sendJson(res, 403, { error: MEDIA_MESSAGES.csrf });
-        return;
-      }
-      const rate = parseLimiter.check(`parse:${session.username}`, now());
-      if (!rate.allowed) {
-        sendJson(res, 429, { error: MEDIA_MESSAGES.rate });
-        return;
-      }
+    async function readShareText() {
       let body;
       try {
         body = await readJson(req, 32 * 1024);
@@ -64,29 +59,53 @@ export function createMediaHandler({
           { error: status === 413 ? MEDIA_MESSAGES.tooLong : MEDIA_MESSAGES.unreadable },
           error.closeConnection ? { Connection: 'close' } : {},
         );
-        return;
+        return null;
       }
       const text = typeof body?.text === 'string' ? body.text : '';
       if (!text.trim()) {
         sendJson(res, 400, { error: MEDIA_MESSAGES.paste });
-        return;
+        return null;
       }
       if (text.length > 8000) {
         sendJson(res, 400, { error: MEDIA_MESSAGES.tooLong });
+        return null;
+      }
+      return text;
+    }
+
+    if (req.method === 'POST' && (pathname === '/api/media/parse' || pathname === '/api/media/douyin/entry2')) {
+      const token = req.headers['x-csrf-token'];
+      if (!secretEquals(token, session.csrf)) {
+        sendJson(res, 403, { error: MEDIA_MESSAGES.csrf });
         return;
       }
+      const entry2 = pathname === '/api/media/douyin/entry2';
+      const rate = parseLimiter.check(`${entry2 ? 'entry2' : 'parse'}:${session.username}`, now());
+      if (!rate.allowed) {
+        sendJson(res, 429, { error: MEDIA_MESSAGES.rate });
+        return;
+      }
+      const text = await readShareText();
+      if (text == null) return;
       try {
-        const work = await parseShareText(text, {
-          config,
-          fetchImpl,
-          proxify,
-          timeoutMs: config.mediaParseTimeoutMs,
-        });
+        const work = entry2
+          ? await parseDouyinEntry2(text, {
+            fetchImpl: entryFetch,
+            lookup: douyinLookup,
+            proxify,
+            timeoutMs: config.mediaParseTimeoutMs,
+          })
+          : await parseShareText(text, {
+            config,
+            fetchImpl,
+            proxify,
+            timeoutMs: config.mediaParseTimeoutMs,
+          });
         sendJson(res, 200, work);
       } catch (error) {
         const mediaError = error instanceof MediaError
           ? error
-          : new MediaError(MEDIA_MESSAGES.generic, 502, 'parse_failed');
+          : new MediaError(entry2 ? MEDIA_MESSAGES.douyinEntry2Down : MEDIA_MESSAGES.generic, 502, 'parse_failed');
         sendJson(res, mediaError.statusCode, { error: mediaError.message });
       }
       return;

@@ -12,6 +12,8 @@ const REFERERS = {
 };
 
 export function cdnRequestHeaders(platform, range) {
+  // Douyin CDN accepts no Referer or a douyin.com Referer. A cross-site Referer is rejected.
+  // Build these headers here and do not copy the browser Referer from the page origin.
   const headers = {
     'User-Agent': USER_AGENT,
     Referer: REFERERS[platform] || REFERERS.douyin,

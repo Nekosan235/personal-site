@@ -1,6 +1,5 @@
 import { apiRequest, ApiError } from '../components/api.js?v=1.7.0';
 import { element, internalLink, pageHeading, statusBadge } from '../components/dom.js?v=1.4.0';
-import { icon } from '../components/icons.js?v=1.7.0';
 import { extractShareTarget, xhsLinkNeedsToken } from '../components/media-links.js?v=1.7.0';
 
 const HISTORY_KEY = 'personal-site.media-history';
@@ -35,66 +34,68 @@ function safeMediaPath(value) {
   return typeof value === 'string' && value.startsWith('/api/media/file?') ? value : '';
 }
 
+function formatCount(value) {
+  return new Intl.NumberFormat('zh-CN').format(value);
+}
+
 export function renderMediaDownload({ module, session, signal }) {
   const page = element('div', { className: 'media-page page-enter' });
   const on = (node, type, listener) => node.addEventListener(type, listener, { signal });
-  const paste = element('textarea', {
-    className: 'form-control media-paste',
-    attributes: {
-      rows: '6',
-      placeholder: '把小红书或抖音的分享文字粘贴到这里',
-      'aria-label': '分享文字',
-      autocapitalize: 'off',
-      autocorrect: 'off',
-      spellcheck: 'false',
-      autocomplete: 'off',
-    },
-  });
-  const pasteButton = element('button', {
-    className: 'btn btn-outline-primary media-paste-button',
-    text: '粘贴',
-    attributes: { type: 'button' },
-  });
-  const parseButton = element('button', {
-    className: 'btn btn-primary media-parse-button',
-    text: '解析',
-    attributes: { type: 'submit' },
-  });
-  const detection = element('p', {
-    className: 'media-detect',
-    attributes: { role: 'status', 'aria-live': 'polite' },
-    text: '粘贴后会自动识别平台。',
-  });
-  const alert = element('div', {
-    className: 'alert alert-danger media-alert',
-    attributes: { role: 'alert', hidden: '' },
-  });
+
+  const paste = field('把小红书或抖音的分享文字粘贴到这里', '分享文字');
+  const paste2 = field('把抖音分享链接或整段分享文字粘贴到这里', '抖音分享文字');
+  paste.id = 'media-paste';
+  paste2.id = 'media-paste-entry2';
+  const pasteButton = actionButton('粘贴', 'btn btn-outline-primary media-paste-button');
+  const pasteButton2 = actionButton('粘贴', 'btn btn-outline-primary media-paste-button');
+  const parseButton = actionButton('解析', 'btn btn-primary media-parse-button', 'submit');
+  const parseButton2 = actionButton('查看清晰度', 'btn btn-primary media-parse-button', 'submit');
+  const detection = liveText('粘贴后会自动识别平台。', 'media-detect');
+  const detection2 = liveText('入口 2 只解析抖音视频，不使用 Cookie。', 'media-detect');
+  const alert = errorBox();
+  const alert2 = errorBox();
   const xhsBadge = healthBadge('小红书');
   const douyinBadge = healthBadge('抖音');
   const results = element('div', { className: 'media-results' });
+  const results2 = element('div', { className: 'media-results' });
   const history = element('div', { className: 'media-history-list' });
+  const health = element('div', { className: 'media-health', attributes: { role: 'status', 'aria-label': '解析服务状态' } }, [xhsBadge, douyinBadge]);
+  const tab1 = entryTab('入口 1', 'DouK', true);
+  const tab2 = entryTab('入口 2', '免 Cookie', false);
+  const entry1 = element('div', { className: 'media-entry', attributes: { 'data-entry': '1', role: 'tabpanel' } });
+  const entry2 = element('div', { className: 'media-entry', attributes: { 'data-entry': '2', role: 'tabpanel', hidden: '' } });
   const form = element('form', { className: 'media-form card' }, [
     element('div', { className: 'card-body' }, [
-      element('label', { className: 'form-label', text: '分享文字', attributes: { for: 'media-paste' } }),
-      paste,
+      labeledField('分享文字', paste),
       element('div', { className: 'media-actions' }, [pasteButton, parseButton]),
       detection,
       alert,
       element('p', { className: 'media-save-hint', text: 'iPhone 无法强制下载：长按图片保存 / 视频点分享→存储。' }),
     ]),
   ]);
-  paste.id = 'media-paste';
+  const form2 = element('form', { className: 'media-form card' }, [
+    element('div', { className: 'card-body' }, [
+      labeledField('抖音分享文字', paste2),
+      element('div', { className: 'media-actions' }, [pasteButton2, parseButton2]),
+      detection2,
+      alert2,
+      element('p', { className: 'media-entry-note', text: '直接向抖音请求清晰度。不使用抖音 Cookie，也不经过本机 DouK。失败时请改用入口 1。' }),
+      element('p', { className: 'media-save-hint', text: 'iPhone 无法强制下载：长按图片保存 / 视频点分享→存储。' }),
+    ]),
+  ]);
+  entry1.append(health, form, results);
+  entry2.append(form2, results2);
 
   page.append(
     internalLink('/tools', '← 工具箱', 'text-link back-link'),
     pageHeading(
       module?.title || '无水印下载',
-      '粘贴小红书或抖音的分享文字，解析图片和视频后保存到手机。',
+      '粘贴分享文字后保存。抖音可以走入口 1（DouK）或入口 2（不需要 Cookie）。',
       statusBadge(module?.status || 'ready'),
     ),
-    element('div', { className: 'media-health', attributes: { role: 'status', 'aria-label': '解析服务状态' } }, [xhsBadge, douyinBadge]),
-    form,
-    results,
+    element('div', { className: 'media-entries', attributes: { role: 'tablist', 'aria-label': '抖音下载入口' } }, [tab1, tab2]),
+    entry1,
+    entry2,
     element('section', { className: 'media-history card' }, [
       element('div', { className: 'card-body' }, [
         element('h2', { className: 'card-title', text: '最近解析' }),
@@ -104,16 +105,80 @@ export function renderMediaDownload({ module, session, signal }) {
     element('p', { className: 'media-note', text: '仅供个人保存自己或已获授权的内容。' }),
   );
 
-  on(paste, 'input', showDetection);
-  on(paste, 'paste', () => setTimeout(showDetection, 0));
-  on(pasteButton, 'click', pasteClipboard);
+  on(paste, 'input', () => showDetection(1));
+  on(paste, 'paste', () => setTimeout(() => showDetection(1), 0));
+  on(paste2, 'input', () => showDetection(2));
+  on(paste2, 'paste', () => setTimeout(() => showDetection(2), 0));
+  on(pasteButton, 'click', () => pasteClipboard(paste, 1, alert));
+  on(pasteButton2, 'click', () => pasteClipboard(paste2, 2, alert2));
+  on(tab1, 'click', () => showEntry(1));
+  on(tab2, 'click', () => showEntry(2));
   on(form, 'submit', (event) => {
     event.preventDefault();
     parseShare();
   });
+  on(form2, 'submit', (event) => {
+    event.preventDefault();
+    parseEntry2();
+  });
   renderHistory();
   loadHealth();
   return page;
+
+  function field(placeholder, label) {
+    return element('textarea', {
+      className: 'form-control media-paste',
+      attributes: {
+        rows: '6',
+        placeholder,
+        'aria-label': label,
+        autocapitalize: 'off',
+        autocorrect: 'off',
+        spellcheck: 'false',
+        autocomplete: 'off',
+      },
+    });
+  }
+
+  function actionButton(text, className, type = 'button') {
+    return element('button', { className, text, attributes: { type } });
+  }
+
+  function liveText(text, className) {
+    return element('p', { className, attributes: { role: 'status', 'aria-live': 'polite' }, text });
+  }
+
+  function errorBox() {
+    return element('div', { className: 'alert alert-danger media-alert', attributes: { role: 'alert', hidden: '' } });
+  }
+
+  function labeledField(label, node) {
+    const id = node.id || '';
+    return element('div', { className: 'media-field' }, [
+      element('label', { className: 'form-label', text: label, attributes: id ? { for: id } : {} }),
+      node,
+    ]);
+  }
+
+  function entryTab(name, hint, selected) {
+    return element('button', {
+      className: 'media-entry-tab',
+      attributes: { type: 'button', role: 'tab', 'aria-selected': selected ? 'true' : 'false' },
+    }, [
+      element('span', { className: 'media-entry-name', text: name }),
+      element('span', { className: 'media-entry-hint', text: hint }),
+    ]);
+  }
+
+  function showEntry(entry) {
+    const second = entry === 2;
+    tab1.setAttribute('aria-selected', second ? 'false' : 'true');
+    tab2.setAttribute('aria-selected', second ? 'true' : 'false');
+    entry1.hidden = second;
+    entry2.hidden = !second;
+    if (second) paste2.focus();
+    else paste.focus();
+  }
 
   function healthBadge(label) {
     return element('span', {
@@ -129,39 +194,47 @@ export function renderMediaDownload({ module, session, signal }) {
     node.textContent = `${label} · ${HEALTH_LABEL[reason] || '离线'}`;
   }
 
-  function showDetection() {
-    const target = extractShareTarget(paste.value);
+  function showDetection(entry) {
+    const box = entry === 2 ? paste2 : paste;
+    const output = entry === 2 ? detection2 : detection;
+    const target = extractShareTarget(box.value);
     if (!target) {
-      detection.textContent = paste.value.trim() ? '还没有识别到小红书或抖音链接。' : '粘贴后会自动识别平台。';
+      output.textContent = box.value.trim()
+        ? (entry === 2 ? '还没有识别到抖音链接。' : '还没有识别到小红书或抖音链接。')
+        : (entry === 2 ? '入口 2 只解析抖音视频，不使用 Cookie。' : '粘贴后会自动识别平台。');
+      return;
+    }
+    if (entry === 2 && target.platform !== 'douyin') {
+      output.textContent = '入口 2 只接受抖音链接。小红书请用入口 1。';
       return;
     }
     const label = PLATFORM_LABEL[target.platform] || target.platform;
-    detection.textContent = xhsLinkNeedsToken(target.url)
+    output.textContent = xhsLinkNeedsToken(target.url)
       ? `已识别为${label}。这条链接没有 xsec_token，用 App 里的完整分享更稳妥。`
       : `已识别为${label}。`;
   }
 
-  function setAlert(message) {
-    alert.hidden = !message;
-    alert.textContent = message || '';
+  function setAlert(node, message) {
+    node.hidden = !message;
+    node.textContent = message || '';
   }
 
-  function setBusy(busy) {
-    parseButton.disabled = busy;
-    pasteButton.disabled = busy;
-    parseButton.textContent = busy ? '正在解析…' : '解析';
-    form.setAttribute('aria-busy', busy ? 'true' : 'false');
+  function setBusy(button, pasteControl, formNode, busy, idleText) {
+    button.disabled = busy;
+    pasteControl.disabled = busy;
+    button.textContent = busy ? '正在解析…' : idleText;
+    formNode.setAttribute('aria-busy', busy ? 'true' : 'false');
   }
 
-  async function pasteClipboard() {
+  async function pasteClipboard(box, entry, alertNode) {
     try {
       const text = await navigator.clipboard.readText();
       if (signal.aborted) return;
-      paste.value = text;
-      showDetection();
-      paste.focus();
+      box.value = text;
+      showDetection(entry);
+      box.focus();
     } catch {
-      setAlert('当前浏览器不允许读取剪贴板，请在输入框里长按粘贴。');
+      setAlert(alertNode, '当前浏览器不允许读取剪贴板，请在输入框里长按粘贴。');
     }
   }
 
@@ -179,13 +252,13 @@ export function renderMediaDownload({ module, session, signal }) {
   }
 
   async function parseShare() {
-    setAlert('');
+    setAlert(alert, '');
     const text = paste.value.trim();
     if (!text) {
-      setAlert('请先粘贴分享内容。');
+      setAlert(alert, '请先粘贴分享内容。');
       return;
     }
-    setBusy(true);
+    setBusy(parseButton, pasteButton, form, true, '解析');
     results.replaceChildren();
     try {
       const work = await apiRequest('/api/media/parse', {
@@ -195,22 +268,62 @@ export function renderMediaDownload({ module, session, signal }) {
         signal,
       });
       if (signal.aborted) return;
-      renderWork(work);
-      remember(text, work);
+      renderWork(results, work);
+      remember(text, work, 1);
     } catch (error) {
       if (signal.aborted || error?.name === 'AbortError' || (error instanceof ApiError && error.status === 401)) return;
-      setAlert(error instanceof ApiError && error.message && error.message !== 'Request failed'
+      setAlert(alert, error instanceof ApiError && error.message && error.message !== 'Request failed'
         ? error.message
         : '解析失败，请稍后再试。');
     } finally {
-      if (!signal.aborted) setBusy(false);
+      if (!signal.aborted) setBusy(parseButton, pasteButton, form, false, '解析');
     }
   }
 
-  function remember(text, work) {
+  async function parseEntry2() {
+    setAlert(alert2, '');
+    const text = paste2.value.trim();
+    if (!text) {
+      setAlert(alert2, '请先粘贴分享内容。');
+      return;
+    }
+    const target = extractShareTarget(text);
+    if (!target || target.platform !== 'douyin') {
+      setAlert(alert2, '入口 2 只接受抖音分享链接。');
+      return;
+    }
+    setBusy(parseButton2, pasteButton2, form2, true, '查看清晰度');
+    results2.replaceChildren();
+    try {
+      const work = await apiRequest('/api/media/douyin/entry2', {
+        method: 'POST',
+        csrfToken: session.csrfToken,
+        body: { text },
+        signal,
+      });
+      if (signal.aborted) return;
+      renderQualities(work);
+      remember(text, work, 2);
+    } catch (error) {
+      if (signal.aborted || error?.name === 'AbortError' || (error instanceof ApiError && error.status === 401)) return;
+      setAlert(alert2, error instanceof ApiError && error.message && error.message !== 'Request failed'
+        ? error.message
+        : '入口 2 解析失败。请改用入口 1。');
+    } finally {
+      if (!signal.aborted) setBusy(parseButton2, pasteButton2, form2, false, '查看清晰度');
+    }
+  }
+
+  function remember(text, work, entry) {
     const next = [
-      { text: text.slice(0, 500), title: work.title || '未命名作品', platform: work.platform, at: Date.now() },
-      ...readHistory().filter((item) => item.text !== text),
+      {
+        text: text.slice(0, 500),
+        title: work.title || '未命名作品',
+        platform: work.platform,
+        entry,
+        at: Date.now(),
+      },
+      ...readHistory().filter((item) => item.text !== text || item.entry !== entry),
     ].slice(0, 10);
     writeHistory(next);
     renderHistory();
@@ -224,23 +337,73 @@ export function renderMediaDownload({ module, session, signal }) {
       return;
     }
     for (const item of items) {
+      const entry = item.entry === 2 ? 2 : 1;
       const button = element('button', {
         className: 'btn btn-outline-secondary media-history-button',
         attributes: { type: 'button' },
       }, [
-        element('span', { className: 'media-history-platform', text: PLATFORM_LABEL[item.platform] || '链接' }),
+        element('span', { className: 'media-history-platform', text: `${entry === 2 ? '入口 2' : '入口 1'} · ${PLATFORM_LABEL[item.platform] || '链接'}` }),
         element('span', { className: 'media-history-title', text: item.title }),
       ]);
       on(button, 'click', () => {
-        paste.value = item.text;
-        showDetection();
-        paste.focus();
+        showEntry(entry);
+        const box = entry === 2 ? paste2 : paste;
+        box.value = item.text;
+        showDetection(entry);
+        box.focus();
       });
       history.append(button);
     }
   }
 
-  function renderWork(work) {
+  function renderQualities(work) {
+    const qualities = Array.isArray(work?.qualities) ? work.qualities : [];
+    const count = Number.isSafeInteger(work?.playCount) ? `播放 ${formatCount(work.playCount)}` : '';
+    const heading = element('div', { className: 'media-result-head' }, [
+      element('p', { className: 'media-platform', text: '抖音 · 入口 2' }),
+      element('h2', { className: 'media-title', text: work.title || '未命名作品' }),
+      work.author ? element('p', { className: 'media-author text-secondary', text: work.author }) : null,
+      count ? element('p', { className: 'media-author text-secondary', text: count }) : null,
+    ]);
+    const chosen = element('div', { className: 'media-chosen' });
+    const list = element('div', { className: 'media-quality-list', attributes: { role: 'listbox', 'aria-label': '清晰度' } });
+    for (const quality of qualities) {
+      const button = element('button', {
+        className: 'btn btn-outline-secondary media-quality',
+        attributes: { type: 'button', role: 'option', 'aria-selected': 'false' },
+      }, [
+        element('span', { className: 'media-quality-label', text: quality.label || '视频' }),
+        quality.gearName ? element('span', { className: 'media-quality-gear', text: quality.gearName }) : null,
+      ]);
+      on(button, 'click', () => selectQuality(list, button, chosen, quality, work.title));
+      list.append(button);
+    }
+    results2.replaceChildren(element('section', { className: 'card media-result-card' }, [
+      element('div', { className: 'card-body' }, [
+        heading,
+        element('p', { className: 'media-entry-note', text: '选择一个清晰度后再播放或保存。文件经本站转发，不会直接打开抖音 CDN。' }),
+        list,
+        chosen,
+      ]),
+    ]));
+  }
+
+  function selectQuality(list, button, chosen, quality, title) {
+    for (const node of list.querySelectorAll('.media-quality')) {
+      node.setAttribute('aria-selected', 'false');
+      node.classList.remove('is-selected');
+    }
+    button.setAttribute('aria-selected', 'true');
+    button.classList.add('is-selected');
+    chosen.replaceChildren(renderItem({
+      kind: 'video',
+      url: quality.url,
+      thumb: quality.thumb,
+      name: quality.name,
+    }, 0, title));
+  }
+
+  function renderWork(root, work) {
     const items = Array.isArray(work?.items) ? work.items : [];
     const heading = element('div', { className: 'media-result-head' }, [
       element('p', { className: 'media-platform', text: PLATFORM_LABEL[work.platform] || '' }),
@@ -254,14 +417,14 @@ export function renderMediaDownload({ module, session, signal }) {
         attributes: { type: 'button' },
       })
       : null;
-    if (all) on(all, 'click', () => downloadAll(items, all, work.title));
+    if (all) on(all, 'click', () => downloadAll(root, items, all, work.title));
     const grid = element('div', {
       className: work.type === 'video' && items.length === 1 ? 'media-single' : 'media-grid',
       attributes: { 'data-count': String(items.length) },
     });
     items.forEach((item, index) => grid.append(renderItem(item, index, work.title)));
     const progress = element('p', { className: 'media-progress', attributes: { role: 'status', 'aria-live': 'polite' } });
-    results.replaceChildren(element('section', { className: 'card media-result-card' }, [
+    root.replaceChildren(element('section', { className: 'card media-result-card' }, [
       element('div', { className: 'card-body' }, [heading, all, grid, progress]),
     ]));
   }
@@ -294,9 +457,9 @@ export function renderMediaDownload({ module, session, signal }) {
     return element('article', { className: 'media-card' }, [frame, save]);
   }
 
-  async function downloadAll(items, button, title) {
+  async function downloadAll(root, items, button, title) {
     button.disabled = true;
-    const progress = results.querySelector('.media-progress');
+    const progress = root.querySelector('.media-progress');
     for (let index = 0; index < items.length; index += 1) {
       if (signal.aborted) return;
       if (progress) progress.textContent = `正在保存 ${index + 1}/${items.length}`;
