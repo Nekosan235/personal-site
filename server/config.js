@@ -146,6 +146,13 @@ export function loadConfig(env = process.env, overrides = {}) {
     xhsApiTokenFile: textValue(overrides, env, 'xhsApiTokenFile', 'XHS_API_TOKEN_FILE'),
     douyinApiToken: textValue(overrides, env, 'douyinApiToken', 'DOUYIN_API_TOKEN'),
     douyinCookie: textValue(overrides, env, 'douyinCookie', 'DOUYIN_COOKIE'),
+    rembgApiUrl: configuredUrl(overrides, env, 'rembgApiUrl', 'REMBG_API_URL', 'http://127.0.0.1:7000'),
+    rembgTimeoutMs: boundedNumber(
+      pick(overrides, env, 'rembgTimeoutMs', 'REMBG_TIMEOUT_MS', 120_000),
+      120_000,
+      10_000,
+      180_000,
+    ),
     mediaParseTimeoutMs: boundedNumber(
       pick(overrides, env, 'mediaParseTimeoutMs', 'MEDIA_PARSE_TIMEOUT_MS', 25_000),
       25_000,
@@ -302,6 +309,9 @@ export function validateRuntimeConfig(config) {
   }
   if (config.douyinApiUrl && !isLoopbackHttpUrl(config.douyinApiUrl)) {
     missing.push('DOUYIN_API_URL must be a loopback http(s) URL');
+  }
+  if (config.rembgApiUrl && !isLoopbackHttpUrl(config.rembgApiUrl)) {
+    missing.push('REMBG_API_URL must be a loopback http(s) URL');
   }
   if (config.nasMonitorSecret && config.nasMonitorSecret.length < 32) {
     missing.push('NAS_MONITOR_SECRET must be at least 32 characters');

@@ -8,13 +8,18 @@ export function createWorkbench({ kind, title, description }) {
   const gif = kind === 'gif';
   const fileInput = element('input', {
     className: 'form-control editor-file-input',
-    attributes: { type: 'file', accept: gif ? 'image/gif,.gif' : 'image/png,image/jpeg,image/webp', 'aria-label': gif ? '选择 GIF 文件' : '选择图片' },
+    attributes: {
+      type: 'file',
+      accept: gif ? 'image/gif,.gif' : 'image/png,image/jpeg,image/webp',
+      'aria-label': gif ? '选择 GIF 文件' : '选择图片，可多选',
+      ...(gif ? {} : { multiple: '' }),
+    },
   });
   const canvas = element('canvas', { className: 'editor-canvas', attributes: { hidden: '', role: 'img', 'aria-label': '本地图片预览' } });
   const empty = element('div', { className: 'editor-empty' }, [
     element('span', { className: 'editor-empty-icon', text: gif ? 'GIF' : 'PNG' }),
-    element('strong', { text: gif ? '选择一个 GIF 开始编辑' : '选择一张图片开始处理' }),
-    element('span', { text: gif ? '文件只在浏览器本地处理，不会上传。' : '支持 PNG、JPEG 和 WebP，本地处理，不会上传。' }),
+    element('strong', { text: gif ? '选择一个 GIF 开始编辑' : '选择一张或多张图片开始处理' }),
+    element('span', { text: gif ? '文件只在浏览器本地处理，不会上传。' : '支持一次导入多张 PNG、JPEG 和 WebP。去白底只在本地处理。' }),
     button(gif ? '选择 GIF 文件' : '选择图片', 'btn btn-primary editor-pick'),
   ]);
   const stage = element('div', { className: 'editor-stage', attributes: { 'data-background': 'checker', 'data-zoom': '1' } }, [empty, canvas]);
@@ -40,7 +45,7 @@ export function createWorkbench({ kind, title, description }) {
     element('div', { className: 'card-header editor-card-header' }, [
       element('div', {}, [element('h2', { className: 'card-title', text: '预览' }), previewMeta]),
       element('label', { className: 'btn btn-outline-primary btn-sm editor-file-label' }, [
-        fileInput, element('span', { text: gif ? '选择 GIF' : '更换图片' }),
+        fileInput, element('span', { text: gif ? '选择 GIF' : '添加图片' }),
       ]),
     ]),
     element('div', { className: 'editor-preview-switch' }, [previewOriginal, previewResult, background]),

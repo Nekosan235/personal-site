@@ -14,6 +14,7 @@ import { LoginRateLimiter } from './auth/rate-limit.js';
 import { SessionStore } from './auth/sessions.js';
 import { getModules } from './modules/catalog.js';
 import { createMediaHandler } from './media/handler.js';
+import { createMattingHandler } from './matting/handler.js';
 import { getDashboardMock } from './providers/mock.js';
 import { createLiveDashboardProvider } from './providers/live.js';
 import { NasMonitorStore, cloudDashboardDevice } from './providers/nas.js';
@@ -267,6 +268,7 @@ export function createApplication(options = {}) {
   const dashboardProvider = options.dashboardProvider
     ?? (config.monitoringMode === 'live' ? createLiveDashboardProvider(config, options.monitoring) : null);
   const nasMonitorStore = options.nasMonitorStore ?? new NasMonitorStore(config, options.nasMonitoring);
+  const headerFor = (contentType) => securityHeaders(contentType, hstsEnabled);
   const media = createMediaHandler({
     config,
     fetchImpl: options.mediaFetch,
@@ -276,7 +278,15 @@ export function createApplication(options = {}) {
     douyinFetch: options.douyinFetch,
     douyinLookup: options.douyinLookup,
     now,
-    securityHeaders: (contentType) => securityHeaders(contentType, hstsEnabled),
+    securityHeaders: headerFor,
+  });
+  const matting = createMattingHandler({
+    config,
+    fetchImpl: options.mattingFetch,
+    limiter: options.mattingLimiter,
+    maxConcurrent: options.mattingMaxConcurrent,
+    now,
+    securityHeaders: headerFor,
   });
   dashboardProvider?.start?.();
 
@@ -498,6 +508,11 @@ export function createApplication(options = {}) {
 
         if (pathname.startsWith('/api/media/')) {
           await media.handle(req, res, { pathname, url, session: apiSession, readJson });
+          return;
+        }
+
+        if (pathname.startsWith('/api/matting/')) {
+          await matting.handle(req, res, { pathname, url, session: apiSession });
           return;
         }
 

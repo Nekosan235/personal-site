@@ -1,4 +1,4 @@
-import { createWorkbench } from '../components/image-tools/editor-ui.js?v=1.4.0';
+import { createWorkbench } from '../components/image-tools/editor-ui.js?v=1.5.0';
 import { createImageWorker } from '../components/image-tools/worker-client.js?v=1.4.0';
 import { clampZoom } from '../components/image-tools/editor-view.js?v=1.4.0';
 
