@@ -11,10 +11,14 @@ const MAX_EDGE = 2048;
 const MAX_UPLOAD = 10 * 1024 * 1024;
 const MODELS = [
   ['u2netp', 'u2netp · 更快'],
-  ['isnet-general-use', 'isnet · 通用'],
-  ['birefnet-general-lite', 'birefnet 轻量 · 推荐'],
-  ['birefnet-portrait', 'birefnet · 人像'],
+  ['isnet-general-use', 'isnet · 质量'],
+  ['birefnet-general-lite', 'birefnet · 精细（较慢）'],
 ];
+const MODEL_HINT = {
+  u2netp: '默认。体积小，适合内存有限的抠图机器。',
+  'isnet-general-use': '质量更好，比 u2netp 慢一些。',
+  'birefnet-general-lite': '边缘更细，明显更慢。内存不够时请改回 u2netp。',
+};
 const REFINES = [
   ['none', '不精修'],
   ['dc', '去色边'],
@@ -51,7 +55,7 @@ export function renderRemoveBackground({ signal, session }) {
     zoom: 1,
     activeId: null,
     cutout: pendingImport.ok && pendingImport.record.mode === 'smart' ? 'smart' : 'white',
-    model: 'birefnet-general-lite',
+    model: 'u2netp',
     refine: 'none',
   };
   const on = (node, type, listener) => node.addEventListener(type, listener, { signal });
@@ -70,12 +74,14 @@ export function renderRemoveBackground({ signal, session }) {
     on(control, 'click', () => setCutoutMode(value));
   }
   const modelSelect = element('select', { className: 'form-select', attributes: { 'aria-label': '抠图模型', 'data-control': '' } }, MODELS.map(([value, label]) => element('option', { text: label, attributes: { value, ...(value === state.model ? { selected: '' } : {}) } })));
+  const modelHint = element('p', { className: 'form-hint', text: MODEL_HINT.u2netp });
   const refineSelect = element('select', { className: 'form-select', attributes: { 'aria-label': '精修', 'data-control': '' } }, REFINES.map(([value, label]) => element('option', { text: label, attributes: { value } })));
   const refineHint = element('p', { className: 'form-hint', text: REFINE_HINT.none });
   const health = element('p', { className: 'editor-matting-health', attributes: { role: 'status' }, text: '正在检查抠图服务…' });
   const smartPanel = element('section', { className: 'editor-smart-panel', attributes: { hidden: '' } }, [
     element('label', { className: 'form-label', text: '抠图模型' }),
     modelSelect,
+    modelHint,
     element('label', { className: 'form-label', text: '精修' }),
     refineSelect,
     refineHint,
@@ -117,6 +123,7 @@ export function renderRemoveBackground({ signal, session }) {
     }
     batch.textContent = smart ? '全部抠图并保存' : '全部去白并保存';
     if (!ui.page.hasAttribute('aria-busy')) batch.disabled = queue.length === 0;
+    modelHint.textContent = MODEL_HINT[state.model] || MODEL_HINT.u2netp;
     refineHint.textContent = REFINE_HINT[state.refine] || REFINE_HINT.none;
     if (privacy) {
       privacy.textContent = smart
@@ -599,7 +606,7 @@ export function renderRemoveBackground({ signal, session }) {
   });
   on(ui.tolerance, 'input', () => { ui.toleranceValue.value = ui.tolerance.value; if (state.cutout === 'white') renderWhite(); });
   on(ui.mode, 'change', () => { if (state.cutout === 'white') renderWhite(); });
-  on(modelSelect, 'change', () => { state.model = modelSelect.value; if (state.cutout === 'smart') void runActive(); });
+  on(modelSelect, 'change', () => { state.model = modelSelect.value; syncControls(); if (state.cutout === 'smart') void runActive(); });
   on(refineSelect, 'change', () => { state.refine = refineSelect.value; syncControls(); if (state.cutout === 'smart') void runActive(); });
   on(ui.page, 'preview-mode', (event) => { state.preview = event.detail; paint(); });
   for (const tool of ['erase', 'restore', 'paint', 'sample', 'move']) on(ui.toolButtons.get(tool), 'click', () => setTool(tool));
@@ -794,5 +801,6 @@ async function readError(response) {
     // The body is not JSON.
   }
   if (response.status === 429) return '抠图服务正在处理另一张图片，请稍后再试。';
-  return '智能抠图失败。';
+  if (response.status === 502 || response.status === 504) return '抠图服务暂时没有返回结果。请改用更快的 u2netp，或改用去白底。';
+  return '智能抠图失败。请改用更快的 u2netp，或改用去白底。';
 }

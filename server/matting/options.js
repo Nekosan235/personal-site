@@ -2,7 +2,6 @@ export const MATTING_MODELS = Object.freeze([
   'u2netp',
   'isnet-general-use',
   'birefnet-general-lite',
-  'birefnet-portrait',
 ]);
 
 export const MATTING_REFINES = Object.freeze(['none', 'dc', 'alpha', 'vitmatte']);
@@ -22,7 +21,9 @@ export const MATTING_MESSAGES = Object.freeze({
   resultTooLarge: '抠图结果过大，已停止。可改用去白底。',
   loopback: '抠图服务只能使用本机地址。',
   down: '智能抠图服务暂时连不上。请确认本机回环代理已启动，或改用去白底。',
-  timeout: '智能抠图超时。可换更轻的模型或精修，或改用去白底。',
+  timeout: '智能抠图超时。请改用更快的 u2netp，或把精修改成不精修，也可以改用去白底。',
+  overloaded: '抠图服务暂时没有返回结果。请改用更快的 u2netp，或改用去白底。',
+  oom: '抠图服务内存不足，这次没有完成。请改用更快的 u2netp，精细模型更容易占满内存。也可以改用去白底。',
   redirect: '抠图服务返回了跳转，已停止。',
   rejected: '抠图服务没有接受这张图片。可换一张，或改用去白底。',
   notImage: '智能抠图没有返回图片。可改用去白底后再试。',
@@ -48,6 +49,15 @@ export function refinementFields(refine) {
   if (refine === 'alpha') return { a: 'true' };
   if (refine === 'vitmatte') return { vm: 'true' };
   return {};
+}
+
+export function describeUpstreamFailure(status, bodyText = '') {
+  const text = String(bodyText || '');
+  if (/out of memory|cannot allocate|memoryerror|bad_alloc|oom-kill|oom killed|killed process/i.test(text)) {
+    return MATTING_MESSAGES.oom;
+  }
+  if (status === 502 || status === 503 || status === 504) return MATTING_MESSAGES.overloaded;
+  return MATTING_MESSAGES.rejected;
 }
 
 export function inputImageType(header) {

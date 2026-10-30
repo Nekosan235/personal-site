@@ -9,7 +9,7 @@ import { randomBytes } from 'node:crypto';
 import { createApplication } from '../server/index.js';
 import { loadConfig, validateRuntimeConfig } from '../server/config.js';
 import { hashPassword } from '../server/auth/password.js';
-import { refinementFields } from '../server/matting/options.js';
+import { MATTING_MESSAGES, MATTING_MODELS, describeUpstreamFailure, refinementFields } from '../server/matting/options.js';
 
 const USER = 'matting-user';
 const PASSWORD = 'matting-test-password-2026';
@@ -27,6 +27,13 @@ test('refinement flags are mutually exclusive and the commercial default is not 
   assert.deepEqual(refinementFields('dc'), { dc: 'true' });
   assert.deepEqual(refinementFields('alpha'), { a: 'true' });
   assert.deepEqual(refinementFields('vitmatte'), { vm: 'true' });
+  assert.equal(MATTING_MODELS.includes('birefnet-portrait'), false);
+  assert.equal(loadConfig({ REMBG_API_URL: '' }).rembgApiUrl, 'http://127.0.0.1:7002');
+  assert.match(describeUpstreamFailure(502, ''), /u2netp/);
+  assert.match(describeUpstreamFailure(502, 'Cannot allocate memory'), /内存不足/);
+  assert.doesNotMatch(describeUpstreamFailure(502, 'Cannot allocate memory'), /allocate/);
+  assert.match(describeUpstreamFailure(500, 'oom-kill'), /内存不足/);
+  assert.match(MATTING_MESSAGES.timeout, /u2netp/);
   const config = loadConfig({}, {
     AUTH_USERNAME: USER,
     AUTH_PASSWORD_HASH: passwordHash,
@@ -134,6 +141,13 @@ test('matting stays on loopback, checks the session, and forwards one rembg requ
   });
   assert.equal(badModel.status, 400);
   assert.match(await badModel.text(), /不支持这个抠图模型/);
+  const portrait = await request('/api/matting/remove?model=birefnet-portrait&refine=none', {
+    method: 'POST',
+    headers: { 'Content-Type': 'image/png', 'X-CSRF-Token': csrf },
+    body: PNG,
+  });
+  assert.equal(portrait.status, 400);
+  assert.match(await portrait.text(), /不支持这个抠图模型/);
   assert.equal(calls.length, 0);
 
   const first = request('/api/matting/remove?model=birefnet-general-lite&refine=dc', {
@@ -234,12 +248,12 @@ test('a public rembg address and an upstream redirect are refused', async (t) =>
   assert.equal(called, 0);
 
   const caddy = await readFile(new URL('../deploy/Caddyfile', import.meta.url), 'utf8');
-  assert.doesNotMatch(caddy, /192\.0\.2\.10|:7000/);
+  assert.doesNotMatch(caddy, /192\.0\.2\.10|:7000|:7002/);
   const handbook = await readFile(new URL('../README.md', import.meta.url), 'utf8');
   assert.match(handbook, /REMBG_API_URL/);
   assert.match(handbook, /192\.0\.2\.10/);
   assert.match(handbook, /ops@192\.0\.2\.10/);
-  assert.match(handbook, /127\.0\.0\.1:7000/);
+  assert.match(handbook, /127\.0\.0\.1:7002/);
   assert.match(handbook, /0\.0\.0\.0/);
 });
 
@@ -311,13 +325,93 @@ test('an upstream redirect is not followed', async (t) => {
   assert.match(redirectText, /跳转/);
   assert.equal(redirectText.includes('203.0.113.10'), false);
   assert.equal(called, 1);
+});
+
+test('an upstream 502 or out-of-memory response suggests a lighter model', async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), 'personal-site-matting-oom-'));
+  const publicDir = join(directory, 'public');
+  const { mkdir } = await import('node:fs/promises');
+  await mkdir(publicDir, { recursive: true });
+  await writeFile(join(publicDir, 'login.html'), '<html><meta name="csrf-token" content="{{CSRF_TOKEN}}"></html>');
+  const config = loadConfig({}, {
+    SITE_ORIGIN: ORIGIN,
+    NODE_ENV: 'production',
+    DATA_DIR: join(directory, 'data'),
+    PUBLIC_DIR: publicDir,
+    AUTH_USERNAME: USER,
+    AUTH_PASSWORD_HASH: passwordHash,
+    AUTH_SECRET: randomBytes(48).toString('hex'),
+    HOST: '127.0.0.1',
+    PORT: 0,
+    MONITORING_MODE: 'mock',
+    REMBG_API_URL: 'http://127.0.0.1:9',
+  });
+  let calls = 0;
+  const server = createApplication({
+    config,
+    mattingFetch: async () => {
+      calls += 1;
+      const body = calls === 1 ? 'Cannot allocate memory' : 'bad gateway';
+      return new Response(body, { status: 502, headers: { 'Content-Type': 'text/plain' } });
+    },
+  });
+  const base = await listen(server);
+  t.after(async () => {
+    await new Promise((resolve) => server.close(resolve));
+    await rm(directory, { recursive: true, force: true });
+  });
+  const cookies = new Map();
+  async function request(path, init = {}) {
+    const response = await fetch(base + path, {
+      ...init,
+      headers: {
+        Cookie: [...cookies].map(([name, value]) => `${name}=${value}`).join('; '),
+        Origin: ORIGIN,
+        ...(init.headers || {}),
+      },
+      redirect: 'manual',
+    });
+    for (const cookie of response.headers.getSetCookie()) {
+      const [pair] = cookie.split(';');
+      const separator = pair.indexOf('=');
+      cookies.set(pair.slice(0, separator), pair.slice(separator + 1));
+    }
+    return response;
+  }
+  const loginPage = await request('/login');
+  const csrfLogin = (await loginPage.text()).match(/content="([^"]+)"/)[1];
+  await request('/api/auth/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfLogin },
+    body: JSON.stringify({ username: USER, password: PASSWORD }),
+  });
+  const csrf = (await (await request('/api/session')).json()).csrfToken;
+  const oom = await request('/api/matting/remove?model=birefnet-general-lite&refine=none', {
+    method: 'POST',
+    headers: { 'Content-Type': 'image/png', 'X-CSRF-Token': csrf },
+    body: PNG,
+  });
+  assert.equal(oom.status, 502);
+  const oomText = await oom.text();
+  assert.match(oomText, /内存不足/);
+  assert.match(oomText, /u2netp/);
+  assert.equal(oomText.includes('allocate'), false);
+  const gateway = await request('/api/matting/remove?model=isnet-general-use&refine=none', {
+    method: 'POST',
+    headers: { 'Content-Type': 'image/png', 'X-CSRF-Token': csrf },
+    body: PNG,
+  });
+  assert.equal(gateway.status, 502);
+  const gatewayText = await gateway.text();
+  assert.match(gatewayText, /u2netp/);
+  assert.equal(gatewayText.includes('bad gateway'), false);
 
   const caddy = await readFile(new URL('../deploy/Caddyfile', import.meta.url), 'utf8');
-  assert.doesNotMatch(caddy, /192\.0\.2\.10|:7000/);
+  assert.doesNotMatch(caddy, /192\.0\.2\.10|:7000|:7002/);
   const handbook = await readFile(new URL('../README.md', import.meta.url), 'utf8');
   assert.match(handbook, /REMBG_API_URL/);
   assert.match(handbook, /192\.0\.2\.10/);
   assert.match(handbook, /ops@192\.0\.2\.10/);
-  assert.match(handbook, /127\.0\.0\.1:7000/);
+  assert.match(handbook, /127\.0\.0\.1:7002/);
   assert.match(handbook, /0\.0\.0\.0/);
 });

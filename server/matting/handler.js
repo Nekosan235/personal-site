@@ -5,6 +5,7 @@ import {
   MATTING_MAX_BYTES,
   MATTING_MAX_RESPONSE_BYTES,
   MATTING_MESSAGES,
+  describeUpstreamFailure,
   inputImageType,
   parseMattingQuery,
   refinementFields,
@@ -51,6 +52,29 @@ function readBytes(req, maxBytes) {
     });
     req.on('error', (error) => fail(error));
   });
+}
+
+async function readSnippet(response, maxBytes) {
+  if (!response.body?.getReader) {
+    await response.body?.cancel?.().catch(() => {});
+    return '';
+  }
+  const reader = response.body.getReader();
+  const chunks = [];
+  let size = 0;
+  try {
+    while (size < maxBytes) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks.push(Buffer.from(value));
+      size += value.byteLength;
+    }
+  } catch {
+    return '';
+  } finally {
+    await reader.cancel().catch(() => {});
+  }
+  return Buffer.concat(chunks).subarray(0, maxBytes).toString('utf8');
 }
 
 async function readLimited(response, maxBytes) {
@@ -203,8 +227,8 @@ export function createMattingHandler({
           return;
         }
         if (!upstream.ok) {
-          await upstream.body?.cancel?.().catch(() => {});
-          sendJson(res, 502, { error: MATTING_MESSAGES.rejected }, securityHeaders);
+          const detail = await readSnippet(upstream, 2048);
+          sendJson(res, 502, { error: describeUpstreamFailure(upstream.status, detail) }, securityHeaders);
           return;
         }
         const outputType = String(upstream.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();

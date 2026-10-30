@@ -147,9 +147,12 @@ test('the download page offers both destinations and the tool page switches mode
   assert.match(download, /mediaImportHandoff\.stage\(work, mode\)/);
   assert.match(download, /\/tools\/remove-background/);
   assert.doesNotMatch(download, /一键导入去白底/);
-  for (const model of ['u2netp', 'isnet-general-use', 'birefnet-general-lite', 'birefnet-portrait']) {
+  for (const model of ['u2netp', 'isnet-general-use', 'birefnet-general-lite']) {
     assert.match(tool, new RegExp(model));
   }
+  assert.match(tool, /model: 'u2netp'/);
+  assert.match(tool, /精细（较慢）/);
+  assert.doesNotMatch(tool, /birefnet-portrait/);
   for (const refine of ['dc', 'alpha', 'vitmatte']) assert.match(tool, new RegExp(refine));
   assert.match(tool, /\/api\/matting\/remove/);
   assert.match(tool, /pendingImport\.record\.mode === 'smart'/);

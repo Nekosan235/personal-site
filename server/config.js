@@ -146,7 +146,7 @@ export function loadConfig(env = process.env, overrides = {}) {
     xhsApiTokenFile: textValue(overrides, env, 'xhsApiTokenFile', 'XHS_API_TOKEN_FILE'),
     douyinApiToken: textValue(overrides, env, 'douyinApiToken', 'DOUYIN_API_TOKEN'),
     douyinCookie: textValue(overrides, env, 'douyinCookie', 'DOUYIN_COOKIE'),
-    rembgApiUrl: configuredUrl(overrides, env, 'rembgApiUrl', 'REMBG_API_URL', 'http://127.0.0.1:7000'),
+    rembgApiUrl: configuredUrl(overrides, env, 'rembgApiUrl', 'REMBG_API_URL', 'http://127.0.0.1:7002'),
     rembgTimeoutMs: boundedNumber(
       pick(overrides, env, 'rembgTimeoutMs', 'REMBG_TIMEOUT_MS', 120_000),
       120_000,

@@ -50,23 +50,23 @@ Tabler 样式位于 `public/assets/vendor/tabler/tabler.min.css`，上游许可�
 
 ## 智能抠图
 
-工具页的「智能抠图」调用本站 `POST /api/matting/remove`。Node 只把请求转到 `REMBG_API_URL`（默认 `http://127.0.0.1:7000`），再请求该地址的 `POST /api/remove`。地址必须是回环 `http(s)`，生产启动时和每次请求都会拒绝公网地址。不跟随上游跳转，避免被带到别的主机。
+工具页的「智能抠图」调用本站 `POST /api/matting/remove`。Node 只把请求转到 `REMBG_API_URL`（生产为 `http://127.0.0.1:7002`），再以 multipart 字段 `model` 请求该地址的 `POST /api/remove`。地址必须是回环 `http(s)`，生产启动时和每次请求都会拒绝公网地址。不跟随上游跳转，避免被带到别的主机。
 
 rembg 由运维装在示例里的华东云主机 `192.0.2.10`（RFC 5737 文档地址，部署时改成自己的机器），不要装在跑网站的那台机器上，也不要装在别的区域。进程只监听回环，不要用 rembg 默认的 `0.0.0.0`：
 
 ```sh
-rembg s --host 127.0.0.1 --port 7000
+rembg s --host 127.0.0.1 --port 7002
 ```
 
 跑网站的机器不要直接拨 `192.0.2.10`。沿用小红书 sidecar 的方式，把那台机器的回环端口接到本机回环，例如已有的 `xhs-remote-proxy`，或一条只绑本机的 SSH 转发：
 
 ```sh
-ssh -N -L 127.0.0.1:7000:127.0.0.1:7000 ops@192.0.2.10
+ssh -N -L 127.0.0.1:7002:127.0.0.1:7002 ops@192.0.2.10
 ```
 
-然后在 `/etc/personal-site/site.env` 写 `REMBG_API_URL=http://127.0.0.1:7000`。公网 Caddy 不要反代 rembg。网站不负责安装或重启 rembg。
+然后在 `/etc/personal-site/site.env` 写 `REMBG_API_URL=http://127.0.0.1:7002`。公网 Caddy 不要反代 rembg。网站不负责安装或重启 rembg。
 
-页面可选模型：`u2netp`、`isnet-general-use`、`birefnet-general-lite`（默认）、`birefnet-portrait`。精修三选一：去色边（`dc`）、精细蒙版（`a`）、ViTMatte（`vm`）；不精修则都不传。一次只转发一张，多图在浏览器里排队。超时默认 120 秒，可用 `REMBG_TIMEOUT_MS` 调到 10–180 秒。失败时页面用中文说明，并可以改回去白底；去白底仍然只在浏览器里算，不上传。
+页面模型：`u2netp`（默认，更快）、`isnet-general-use`（质量）、`birefnet-general-lite`（精细，更慢，小内存机器可能失败）。不提供 `birefnet-portrait`。精修三选一：去色边（`dc`）、精细蒙版（`a`）、ViTMatte（`vm`）；不精修则都不传。一次只转发一张，多图在浏览器里排队。超时默认 120 秒，可用 `REMBG_TIMEOUT_MS` 调到 10–180 秒。超时、502 或内存不足时页面用中文建议改用更快的 `u2netp`，也可以改回去白底。去白底仍然只在浏览器里算，不上传。
 
 ### 手机验收
 
@@ -105,7 +105,7 @@ DOUYIN_API_URL=http://127.0.0.1:5555
 XHS_API_TOKEN=
 XHS_API_TOKEN_FILE=
 DOUYIN_COOKIE=
-REMBG_API_URL=http://127.0.0.1:7000
+REMBG_API_URL=http://127.0.0.1:7002
 ```
 
 ```sh
