@@ -162,8 +162,8 @@ NAS 断网会重试，超过云端的过期阈值会在页面显示过期/离线
 
 | 设备 ID | 名称 | 区域 | 公网 IP |
 | --- | --- | --- | --- |
-| `huawei-ap-southeast-1` | 华为云 · 东南亚 | 东南亚 · ap-southeast-1 | 183.87.149.115 |
-| `huawei-cn-east-3` | 华为云 · 华东 | 华东 · cn-east-3 | 1.94.16.40 |
+| `huawei-ap-southeast-1` | 华为云 · 东南亚 | 东南亚 · ap-southeast-1 | 198.51.100.20 |
+| `huawei-cn-east-3` | 华为云 · 华东 | 华东 · cn-east-3 | 192.0.2.10 |
 
 在阿里云的 `/etc/personal-site/site.env` 增加同样的 `REMOTE_CLOUD_*` 行。生成一把至少 32 字符的共享密钥，写入 `REMOTE_CLOUD_MONITOR_SECRET`。某一台要单独密钥时，再设置 `REMOTE_CLOUD_1_SECRET` 或 `REMOTE_CLOUD_2_SECRET`，该槽会覆盖共享密钥。上报节奏沿用 NAS 的 `NAS_REPORT_INTERVAL_MS`（默认 15 秒）、`NAS_STALE_AFTER_MS`（默认 60 秒）和 `NAS_MAX_CLOCK_SKEW_MS`（默认 120 秒）。
 
@@ -172,7 +172,7 @@ openssl rand -hex 32
 systemctl restart personal-site
 ```
 
-网站的 `SITE_ORIGIN` 是 `https://47.117.181.103`。每台华为云虚拟机把指标 POST 到 `https://47.117.181.103/api/monitor/remote/report`。`/api/monitor/nas/report` 仍然接受同一套 HMAC，NAS 脚本不用改。请求头可用 `X-Monitor-Device-Id`、`X-Monitor-Timestamp`、`X-Monitor-Nonce`、`X-Monitor-Signature`，也可继续用原来的 `X-NAS-*`。签名串是 `deviceId.timestamp.nonce.sha256(body)`，HMAC-SHA256 的密钥是该设备的 secret。
+示例里网站的 `SITE_ORIGIN` 是 `https://203.0.113.10`（RFC 5737 文档地址，与 `deploy/site.env.example` 一致，部署时改成自己的公网地址）。每台远程虚拟机把指标 POST 到 `https://203.0.113.10/api/monitor/remote/report`。`/api/monitor/nas/report` 仍然接受同一套 HMAC，NAS 脚本不用改。请求头可用 `X-Monitor-Device-Id`、`X-Monitor-Timestamp`、`X-Monitor-Nonce`、`X-Monitor-Signature`，也可继续用原来的 `X-NAS-*`。签名串是 `deviceId.timestamp.nonce.sha256(body)`，HMAC-SHA256 的密钥是该设备的 secret。
 
 在每台华为云虚拟机上安装代理。脚本只读 `/proc` 和根分区，不上传业务文件。把 `scripts/cloud-monitor.py` 放到 `/opt/personal-site/cloud-monitor.py`，把 `deploy/cloud-monitor.env.example` 放到 `/etc/personal-site/cloud-monitor.env`，权限 600。两台机器的 `CLOUD_DEVICE_ID`、名称、区域和 IP 按上表分开填写，密钥与阿里云 `site.env` 中该设备的密钥一致。
 
@@ -277,7 +277,7 @@ tests/                          认证、监控、终端、图片算法、GIF、
 
 ## 隐私与许可
 
-本仓库包含源码、测试和示例配置。远程监控示例写明了站点 origin `https://47.117.181.103`，以及两台华为云的公网地址和显示名称，方便安装上报代理。仓库没有登录密码、监控密钥、NAS 密钥、SSH 私钥、运行数据库或部署记录。请把真实密钥留在 Git 外。
+本仓库包含源码、测试和示例配置。远程监控示例使用 RFC 5737 文档地址：站点 origin `https://203.0.113.10`，以及两台示例云主机 `198.51.100.20`、`192.0.2.10`，并保留显示名称，方便安装上报代理。真实地址只从环境变量读取。仓库没有登录密码、监控密钥、NAS 密钥、SSH 私钥、运行数据库或部署记录。请把真实密钥和地址留在 Git 外。
 
 界面参考 Apple 的布局和可访问性原则，未使用 Apple 标志或捆绑 SF 字体。原创短句未署名为他人名言。
 
