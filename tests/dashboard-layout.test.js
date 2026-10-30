@@ -234,7 +234,7 @@ test('overview modules swap by drag or nudge, restore, and keep names off the se
   };
   const southeast = {
     ...sample(), id: 'huawei-ap-southeast-1', type: 'cloud', mode: 'push', expiresAt: '2020-01-02',
-    server: { ...sample().server, id: 'huawei-ap-southeast-1', name: '华为云 · 东南亚', region: '东南亚 · ap-southeast-1', ip: '183.87.149.115' },
+    server: { ...sample().server, id: 'huawei-ap-southeast-1', name: '华为云 · 东南亚', region: '东南亚 · ap-southeast-1', ip: '198.51.100.20' },
     metrics: {
       ...sample().metrics,
       memory: { used: 2, total: 4, available: 2, history: [2] },
@@ -250,7 +250,7 @@ test('overview modules swap by drag or nudge, restore, and keep names off the se
   const nameId = name.getAttribute('id');
   const memoryPanel = findPanel(cards[1], '内存');
   assert.equal(name.textContent, '华为云 · 东南亚');
-  assert.match(cards[1].textContent, /183\.87\.149\.115/);
+  assert.match(cards[1].textContent, /198\.51\.100\.20/);
   findButtons(cards[1], '改名')[0].click();
   const input = findClass(cards[1], 'device-rename-input');
   input.value = '东南节点';
@@ -258,7 +258,7 @@ test('overview modules swap by drag or nudge, restore, and keep names off the se
   assert.equal(name.textContent, '东南节点');
   assert.equal(name.getAttribute('id'), nameId);
   assert.equal(cards[1].getAttribute('data-server-id'), 'huawei-ap-southeast-1');
-  assert.match(cards[1].textContent, /183\.87\.149\.115/);
+  assert.match(cards[1].textContent, /198\.51\.100\.20/);
   assert.equal(findClass(memoryPanel, 'metric-used').textContent, '2');
   view.update({
     mode: 'live',
@@ -266,7 +266,7 @@ test('overview modules swap by drag or nudge, restore, and keep names off the se
   });
   assert.equal(name.textContent, '东南节点');
   assert.equal(findClass(memoryPanel, 'metric-used').textContent, '3');
-  assert.match(cards[1].textContent, /183\.87\.149\.115/);
+  assert.match(cards[1].textContent, /198\.51\.100\.20/);
   findButtons(cards[1], '改名')[0].click();
   findClass(cards[1], 'device-rename-input').value = '   ';
   findButtons(cards[1], '保存')[0].click();
@@ -359,7 +359,7 @@ test('dashboard expiry comes from server config and the payload omits secrets', 
     NAS_DEVICE_EXPIRES_AT: '2028-12-31',
     REMOTE_CLOUD_1_ID: 'huawei-ap-southeast-1',
     REMOTE_CLOUD_1_NAME: '华为云 · 东南亚',
-    REMOTE_CLOUD_1_IP: '183.87.149.115',
+    REMOTE_CLOUD_1_IP: '198.51.100.20',
     REMOTE_CLOUD_1_SECRET: MONITOR_SECRET,
     REMOTE_CLOUD_1_EXPIRES_AT: '2026-01-15T16:30:00Z',
     REMOTE_CLOUD_2_ID: 'huawei-cn-east-3',

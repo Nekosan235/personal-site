@@ -103,7 +103,7 @@ test('featured projects stay in interview order with certificate badges', () => 
     null,
   ]);
   const copy = JSON.stringify({ profile, featuredProjects, otherProjects, honors });
-  assert.doesNotMatch(copy, /省一等奖|前5%|9-13K|13402694027|luhanyu08/);
+  assert.doesNotMatch(copy, /省一等奖|前5%|9-13K|1[3-9]\d{9}|[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/);
   assert.match(copy, /江浙赛区三等奖/);
   assert.match(copy, /优秀奖/);
   assert.match(copy, /初赛一等奖/);

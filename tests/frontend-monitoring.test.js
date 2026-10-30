@@ -313,19 +313,19 @@ test('cloud and push NAS keep independent stable cards and volume readings witho
 
 test('remote cloud cards keep cloud facts and waiting or stale states beside NAS', () => withDom(() => {
   const view = createDashboardView({ modules: [], now: () => baseTime });
-  const cloud = { ...sample(), id: 'liveCloud', type: 'cloud', server: { ...sample().server, name: '阿里云', region: '上海 · 阿里云', ip: '47.117.181.103' } };
+  const cloud = { ...sample(), id: 'liveCloud', type: 'cloud', server: { ...sample().server, name: '阿里云', region: '上海 · 阿里云', ip: '203.0.113.10' } };
   const nas = {
     ...sample(), id: 'fnos-nas', type: 'nas', mode: 'push',
     server: { ...sample().server, name: 'NAS', host: 'nas.local', cpuPercent: 4 },
   };
   const southeast = {
     ...sample(), id: 'huawei-ap-southeast-1', type: 'cloud', mode: 'push',
-    server: { ...sample().server, name: '华为云 · 东南亚', region: '东南亚 · ap-southeast-1', ip: '183.87.149.115', cpuPercent: 3 },
+    server: { ...sample().server, name: '华为云 · 东南亚', region: '东南亚 · ap-southeast-1', ip: '198.51.100.20', cpuPercent: 3 },
   };
   const east = {
     id: 'huawei-cn-east-3', type: 'cloud', mode: 'push', sampledAt: null, stale: false,
     error: { code: 'waiting_for_report' },
-    server: { name: '华为云 · 华东', status: 'waiting', region: '华东 · cn-east-3', ip: '1.94.16.40' },
+    server: { name: '华为云 · 华东', status: 'waiting', region: '华东 · cn-east-3', ip: '192.0.2.10' },
     metrics: {
       memory: { used: null, total: null, available: null },
       disk: { used: null, total: null, available: null },
@@ -338,15 +338,15 @@ test('remote cloud cards keep cloud facts and waiting or stale states beside NAS
   assert.equal(cards.length, 4);
   assert.match(view.element.textContent, /1 台设备尚未收到监控上报/);
   assert.match(cards[0].textContent, /云端 · 设备监控/);
-  assert.match(cards[0].textContent, /IP 地址47.117.181.103/);
+  assert.match(cards[0].textContent, /IP 地址203.0.113.10/);
   assert.match(cards[2].textContent, /云端 · 设备监控/);
   assert.match(cards[2].textContent, /华为云 · 东南亚/);
   assert.match(cards[2].textContent, /位置东南亚 · ap-southeast-1/);
-  assert.match(cards[2].textContent, /IP 地址183.87.149.115/);
+  assert.match(cards[2].textContent, /IP 地址198.51.100.20/);
   assert.match(findClass(cards[2], 'server-status').className, /is-online/);
   assert.match(cards[3].textContent, /华为云 · 华东/);
   assert.match(cards[3].textContent, /等待上报/);
-  assert.match(cards[3].textContent, /IP 地址1.94.16.40/);
+  assert.match(cards[3].textContent, /IP 地址192.0.2.10/);
   assert.doesNotMatch(findClass(cards[3], 'server-status').className, /is-online/);
   view.update({ mode: 'live', devices: [cloud, nas, { ...southeast, stale: true, server: { ...southeast.server, status: 'offline' } }, east] });
   assert.equal(findClasses(view.element, 'device-card').length, 4);

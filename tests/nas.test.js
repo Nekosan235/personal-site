@@ -236,11 +236,11 @@ function cloudOverrides(extra = {}) {
     REMOTE_CLOUD_1_ID: 'huawei-ap-southeast-1',
     REMOTE_CLOUD_1_NAME: '华为云 · 东南亚',
     REMOTE_CLOUD_1_REGION: '东南亚 · ap-southeast-1',
-    REMOTE_CLOUD_1_IP: '183.87.149.115',
+    REMOTE_CLOUD_1_IP: '198.51.100.20',
     REMOTE_CLOUD_2_ID: 'huawei-cn-east-3',
     REMOTE_CLOUD_2_NAME: '华为云 · 华东',
     REMOTE_CLOUD_2_REGION: '华东 · cn-east-3',
-    REMOTE_CLOUD_2_IP: '1.94.16.40',
+    REMOTE_CLOUD_2_IP: '192.0.2.10',
     REMOTE_CLOUD_2_SECRET: EAST_CLOUD_SECRET,
     ...extra,
   };
@@ -285,7 +285,7 @@ test('remote cloud slots parse shared and per-device secrets and reject bad regi
   assert.equal(config.remoteDevices.length, 3);
   assert.equal(config.remoteDevices[0].type, 'nas');
   assert.equal(config.remoteDevices[1].secret, SHARED_CLOUD_SECRET);
-  assert.equal(config.remoteDevices[1].ip, '183.87.149.115');
+  assert.equal(config.remoteDevices[1].ip, '198.51.100.20');
   assert.equal(config.remoteDevices[2].secret, EAST_CLOUD_SECRET);
   assert.equal(config.remoteDevices[2].name, '华为云 · 华东');
   assert.doesNotThrow(() => validateRuntimeConfig(config));
@@ -293,7 +293,7 @@ test('remote cloud slots parse shared and per-device secrets and reject bad regi
   const gap = await configFor(t, {
     REMOTE_CLOUD_2_ID: 'huawei-cn-east-3',
     REMOTE_CLOUD_2_NAME: '华为云 · 华东',
-    REMOTE_CLOUD_2_IP: '1.94.16.40',
+    REMOTE_CLOUD_2_IP: '192.0.2.10',
     REMOTE_CLOUD_MONITOR_SECRET: SHARED_CLOUD_SECRET,
   });
   assert.deepEqual(gap.remoteDevices.map((device) => device.id), ['fnos-nas', 'huawei-cn-east-3']);
@@ -317,7 +317,7 @@ test('each remote device accepts only its own signature and keeps independent hi
   assert.deepEqual(dashboards.map((device) => device.id), ['fnos-nas', 'huawei-ap-southeast-1', 'huawei-cn-east-3']);
   assert.equal(dashboards[1].server.status, 'waiting');
   assert.equal(dashboards[1].error.code, 'waiting_for_report');
-  assert.equal(dashboards[1].server.ip, '183.87.149.115');
+  assert.equal(dashboards[1].server.ip, '198.51.100.20');
   assert.equal(dashboards[1].server.region, '东南亚 · ap-southeast-1');
   assert.equal(dashboards[1].stale, false);
 
@@ -364,7 +364,7 @@ test('each remote device accepts only its own signature and keeps independent hi
   assert.equal(listed[1].type, 'cloud');
   assert.equal(listed[1].mode, 'push');
   assert.equal(listed[1].server.status, 'online');
-  assert.equal(listed[1].server.ip, '183.87.149.115');
+  assert.equal(listed[1].server.ip, '198.51.100.20');
   assert.equal(listed[1].metrics.memory.used, 1);
   assert.equal(listed[1].metrics.disk.used, 2);
   assert.equal(listed[2].name, '华为云 · 华东');
@@ -483,10 +483,10 @@ test('dashboard keeps local cloud sampling and lists each remote cloud beside NA
     assert.equal(dashboard.devices[2].mode, 'push');
     assert.equal(dashboard.devices[2].server.status, 'online');
     assert.equal(dashboard.devices[2].server.name, '华为云 · 东南亚');
-    assert.equal(dashboard.devices[2].server.ip, '183.87.149.115');
+    assert.equal(dashboard.devices[2].server.ip, '198.51.100.20');
     assert.equal(dashboard.devices[2].metrics.memory.used, 2);
     assert.equal(dashboard.devices[3].server.status, 'waiting');
-    assert.equal(dashboard.devices[3].server.ip, '1.94.16.40');
+    assert.equal(dashboard.devices[3].server.ip, '192.0.2.10');
     assert.equal(dashboard.devices[3].error.code, 'waiting_for_report');
   } finally {
     await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
@@ -497,7 +497,7 @@ test('a registered cloud without a secret stays visible and rejects reports', as
   const config = await configFor(t, {
     REMOTE_CLOUD_1_ID: 'huawei-ap-southeast-1',
     REMOTE_CLOUD_1_NAME: '华为云 · 东南亚',
-    REMOTE_CLOUD_1_IP: '183.87.149.115',
+    REMOTE_CLOUD_1_IP: '198.51.100.20',
   });
   const store = new NasMonitorStore(config, { now: () => NOW });
   const body = JSON.stringify(cloudReport('huawei-ap-southeast-1'));
