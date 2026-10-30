@@ -31,7 +31,7 @@ test('refinement flags are mutually exclusive and the commercial default is not 
     AUTH_USERNAME: USER,
     AUTH_PASSWORD_HASH: passwordHash,
     AUTH_SECRET: 'x'.repeat(32),
-    rembgApiUrl: 'http://1.94.16.40:7000',
+    rembgApiUrl: 'http://192.0.2.10:7000',
   });
   assert.throws(() => validateRuntimeConfig(config), /REMBG_API_URL must be a loopback/);
 });
@@ -182,7 +182,7 @@ test('a public rembg address and an upstream redirect are refused', async (t) =>
     HOST: '127.0.0.1',
     PORT: 0,
     MONITORING_MODE: 'mock',
-    REMBG_API_URL: 'http://1.94.16.40:7000',
+    REMBG_API_URL: 'http://192.0.2.10:7000',
   });
   const server = createApplication({
     config,
@@ -230,14 +230,15 @@ test('a public rembg address and an upstream redirect are refused', async (t) =>
   assert.equal(blocked.status, 500);
   const text = await blocked.text();
   assert.match(text, /只能使用本机地址/);
-  assert.equal(text.includes('1.94.16.40'), false);
+  assert.equal(text.includes('192.0.2.10'), false);
   assert.equal(called, 0);
 
   const caddy = await readFile(new URL('../deploy/Caddyfile', import.meta.url), 'utf8');
-  assert.doesNotMatch(caddy, /1\.94\.16\.40|:7000/);
+  assert.doesNotMatch(caddy, /192\.0\.2\.10|:7000/);
   const handbook = await readFile(new URL('../README.md', import.meta.url), 'utf8');
   assert.match(handbook, /REMBG_API_URL/);
-  assert.match(handbook, /1\.94\.16\.40/);
+  assert.match(handbook, /192\.0\.2\.10/);
+  assert.match(handbook, /ops@192\.0\.2\.10/);
   assert.match(handbook, /127\.0\.0\.1:7000/);
   assert.match(handbook, /0\.0\.0\.0/);
 });
@@ -312,10 +313,11 @@ test('an upstream redirect is not followed', async (t) => {
   assert.equal(called, 1);
 
   const caddy = await readFile(new URL('../deploy/Caddyfile', import.meta.url), 'utf8');
-  assert.doesNotMatch(caddy, /1\.94\.16\.40|:7000/);
+  assert.doesNotMatch(caddy, /192\.0\.2\.10|:7000/);
   const handbook = await readFile(new URL('../README.md', import.meta.url), 'utf8');
   assert.match(handbook, /REMBG_API_URL/);
-  assert.match(handbook, /1\.94\.16\.40/);
+  assert.match(handbook, /192\.0\.2\.10/);
+  assert.match(handbook, /ops@192\.0\.2\.10/);
   assert.match(handbook, /127\.0\.0\.1:7000/);
   assert.match(handbook, /0\.0\.0\.0/);
 });
