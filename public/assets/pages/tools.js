@@ -3,7 +3,7 @@ import { icon } from '../components/icons.js?v=1.7.0';
 
 export function renderTools({ modules }) {
   const page = element('div', { className: 'tools-page page-enter' }, [
-    pageHeading('工具箱', '图片、动画和格式转换在浏览器本地处理。无水印下载把分享链接交给本机解析服务。'),
+    pageHeading('工具箱', '去白底、动画和格式转换在浏览器本地处理。智能抠图经本站转发。无水印下载把分享链接交给本机解析服务。'),
   ]);
   const tools = modules.filter((module) => module.group === 'tools' && safeInternalPath(module.path));
   const grid = element('div', { className: 'tool-grid' });

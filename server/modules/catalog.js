@@ -20,7 +20,7 @@ export function getModules(config) {
       nav: false,
       status: 'ready',
       group: 'tools',
-      description: '本地移除图片白色背景，手动修整并导出透明 PNG。',
+      description: '本地去掉白底，或经本站做智能抠图。可一次导入多张。',
     },
     {
       id: 'gif-editor',

@@ -47,5 +47,5 @@ test('shell keeps thin borders, a 4px radius, and no heavy shadows', () => {
   assert.match(css, /\.metric-used\s*\{[^}]*font-family:\s*var\(--mono\)/);
   assert.match(css, /\.metric-used\s*\{[^}]*font-variant-numeric:\s*tabular-nums/);
   assert.match(css, /\.media-actions \.btn\s*\{[^}]*min-height:\s*48px/);
-  assert.match(css, /\.media-download-all,\s*\n\s*\.media-save,\s*\n\s*\.media-history-button \{[^}]*min-height:\s*48px/);
+  assert.match(css, /\.media-download-all,\s*\n\s*\.media-import-mode,\s*\n\s*\.media-save,\s*\n\s*\.media-history-button \{[^}]*min-height:\s*48px/);
 });

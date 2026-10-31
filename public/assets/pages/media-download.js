@@ -1,5 +1,6 @@
 import { apiRequest, ApiError } from '../components/api.js?v=1.7.0';
 import { element, internalLink, pageHeading, statusBadge } from '../components/dom.js?v=1.4.0';
+import { mediaImportHandoff, selectImportSources } from '../components/import-handoff.js?v=1.9.0';
 import { extractShareTarget, xhsLinkNeedsToken } from '../components/media-links.js?v=1.7.0';
 
 const HISTORY_KEY = 'personal-site.media-history';
@@ -381,6 +382,7 @@ export function renderMediaDownload({ module, session, signal }) {
     results2.replaceChildren(element('section', { className: 'card media-result-card' }, [
       element('div', { className: 'card-body' }, [
         heading,
+        importChooser(work),
         element('p', { className: 'media-entry-note', text: '选择一个清晰度后再播放或保存。文件经本站转发，不会直接打开抖音 CDN。' }),
         list,
         chosen,
@@ -410,6 +412,7 @@ export function renderMediaDownload({ module, session, signal }) {
       element('h2', { className: 'media-title', text: work.title || '未命名作品' }),
       work.author ? element('p', { className: 'media-author text-secondary', text: work.author }) : null,
     ]);
+    const chooser = importChooser(work);
     const all = items.length > 1
       ? element('button', {
         className: 'btn btn-primary media-download-all',
@@ -425,8 +428,53 @@ export function renderMediaDownload({ module, session, signal }) {
     items.forEach((item, index) => grid.append(renderItem(item, index, work.title)));
     const progress = element('p', { className: 'media-progress', attributes: { role: 'status', 'aria-live': 'polite' } });
     root.replaceChildren(element('section', { className: 'card media-result-card' }, [
-      element('div', { className: 'card-body' }, [heading, all, grid, progress]),
+      element('div', { className: 'card-body' }, [heading, chooser, all, grid, progress]),
     ]));
+  }
+
+  function importChooser(work) {
+    const plan = selectImportSources(work);
+    const note = element('p', {
+      className: 'media-import-note',
+      attributes: { role: 'status', 'aria-live': 'polite' },
+    });
+    if (!plan.items.length) {
+      if (!plan.skippedVideos) return null;
+      note.textContent = '这条是视频，没有可导入的封面。视频文件不会送去处理。';
+      return element('div', { className: 'media-import' }, [note]);
+    }
+    const count = plan.items.length > 1 ? ` · ${plan.items.length}` : '';
+    const hints = ['选择处理方式。图片会带到下一页，不用重新上传。'];
+    if (plan.kind === 'covers') hints.unshift('这是视频，只带封面，不带视频文件。');
+    else if (plan.skippedVideos) hints.push('视频已跳过。');
+    if (plan.truncated) hints.push(`一次最多 ${plan.items.length} 张，多出的 ${plan.omitted} 张不会带上。`);
+    const actions = element('div', { className: 'media-import-actions' }, [
+      modeLink('white', `去白底${count}`),
+      modeLink('smart', `智能抠图${count}`),
+    ]);
+    return element('div', { className: 'media-import', attributes: { role: 'group', 'aria-label': '选择导入方式' } }, [
+      element('p', { className: 'media-import-label', text: '送到图片工具' }),
+      actions,
+      element('p', { className: 'media-import-hint', text: hints.join('') }),
+      note,
+    ]);
+
+    function modeLink(mode, label) {
+      const link = element('a', {
+        className: `btn media-import-mode ${mode === 'smart' ? 'btn-primary' : 'btn-outline-primary'}`,
+        text: label,
+        attributes: { href: '/tools/remove-background', 'data-internal-link': '' },
+      });
+      on(link, 'click', (event) => {
+        const staged = mediaImportHandoff.stage(work, mode);
+        if (!staged.ok) {
+          event.preventDefault();
+          event.stopPropagation();
+          note.textContent = '无法暂存图片列表，请直接在图片工具里上传。';
+        }
+      });
+      return link;
+    }
   }
 
   function renderItem(item, index, title) {
