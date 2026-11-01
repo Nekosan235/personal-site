@@ -10,8 +10,17 @@ test('extracts a Xiaohongshu link from a Chinese share caption and keeps xsec_to
   assert.equal(xhsLinkNeedsToken(target.url), false);
 });
 
+test('extracts a Xiaohongshu xhslink.cn short link from a Chinese share caption', () => {
+  const text = '咪秋日常🍂 11月壁纸请享用~ https://xhslink.cn/o/4bgTkSzJ8el 把文字复制好，然后去【小红书】查看详情。';
+  const target = extractShareTarget(text);
+  assert.equal(target.platform, 'xiaohongshu');
+  assert.equal(target.url, 'https://xhslink.cn/o/4bgTkSzJ8el');
+  assert.equal(xhsLinkNeedsToken(target.url), false);
+});
+
 test('detects short hosts and ignores unrelated links', () => {
   assert.equal(detectPlatform('https://xhslink.com/a/Ab12'), 'xiaohongshu');
+  assert.equal(detectPlatform('https://xhslink.cn/o/Ab12'), 'xiaohongshu');
   assert.equal(detectPlatform('https://v.douyin.com/iABC123/'), 'douyin');
   assert.equal(detectPlatform('https://www.iesdouyin.com/share/video/7123456789012345678/'), 'douyin');
   assert.equal(detectPlatform('https://www.douyin.com/video/7123456789012345678'), 'douyin');
@@ -42,5 +51,6 @@ test('reads a Douyin aweme id from resolved share URLs', () => {
 test('warns when a Xiaohongshu web link has no xsec_token', () => {
   assert.equal(xhsLinkNeedsToken('https://www.xiaohongshu.com/explore/640d6dca000000001203f0f9'), true);
   assert.equal(xhsLinkNeedsToken('https://xhslink.com/a/Ab12'), false);
+  assert.equal(xhsLinkNeedsToken('https://xhslink.cn/o/Ab12'), false);
   assert.equal(xhsLinkNeedsToken('https://v.douyin.com/iABC123/'), false);
 });

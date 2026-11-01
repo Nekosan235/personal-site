@@ -2,7 +2,7 @@ const URL_PATTERN = /https?:\/\/[^\s<>"'，。！？、【】]+/gi;
 const TRAILING_PUNCTUATION = /[),.;:!?，。！？、）】》>]+$/u;
 
 const PLATFORM_HOSTS = [
-  ['xiaohongshu', ['xhslink.com', 'xiaohongshu.com']],
+  ['xiaohongshu', ['xhslink.com', 'xhslink.cn', 'xiaohongshu.com']],
   ['douyin', ['douyin.com', 'iesdouyin.com']],
 ];
 
@@ -74,6 +74,6 @@ export function xhsLinkNeedsToken(value) {
   } catch {
     return false;
   }
-  if (!hostMatches(url.hostname, 'xiaohongshu.com') || hostMatches(url.hostname, 'xhslink.com')) return false;
+  if (!hostMatches(url.hostname, 'xiaohongshu.com') || hostMatches(url.hostname, 'xhslink.com') || hostMatches(url.hostname, 'xhslink.cn')) return false;
   return !url.searchParams.get('xsec_token');
 }
