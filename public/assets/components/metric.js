@@ -71,6 +71,27 @@ function setText(node, value) {
   if (node.textContent !== value) node.textContent = value;
 }
 
+/** Load bands drive CSS only: calm < 60% ≤ busy < 85% ≤ hot. */
+export function loadBand(ratio) {
+  if (!isFiniteNumber(ratio)) return null;
+  if (ratio >= 0.85) return 'hot';
+  if (ratio >= 0.6) return 'busy';
+  return 'calm';
+}
+
+/** Full motion only in a real browser, without reduced motion, and not in lite/off mode. */
+export function motionAllowed(scope = globalThis) {
+  if (typeof scope.requestAnimationFrame !== 'function') return false;
+  try {
+    if (scope.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return false;
+  } catch { /* Older engines without matchMedia keep motion. */ }
+  const level = scope.document?.documentElement?.getAttribute?.('data-motion');
+  return level !== 'off';
+}
+
+const tweenMs = 600;
+const easeOut = (t) => 1 - (1 - t) ** 3;
+
 export function createMetricPanel(label, {
   showHistory = true,
   metric = '',
@@ -93,8 +114,16 @@ export function createMetricPanel(label, {
   svg.setAttribute('aria-label', `${label}真实采样变化`);
   const line = document.createElementNS(namespace, 'polyline');
   line.setAttribute('vector-effect', 'non-scaling-stroke');
-  svg.append(line);
-  const chart = element('div', { className: 'metric-chart' }, [svg, chartCaption]);
+  line.setAttribute('class', 'metric-line');
+  const area = document.createElementNS(namespace, 'polygon');
+  area.setAttribute('class', 'metric-area');
+  const plot = document.createElementNS(namespace, 'g');
+  plot.setAttribute('class', 'metric-plot');
+  plot.append(area, line);
+  svg.append(plot);
+  const head = element('span', { className: 'metric-head', attributes: { 'aria-hidden': 'true', hidden: '' } });
+  const stage = element('div', { className: 'metric-stage' }, [svg, head]);
+  const chart = element('div', { className: 'metric-chart' }, [stage, chartCaption]);
   const section = element('section', {
     className: 'metric-panel',
     attributes: { 'aria-label': `${label}使用情况`, ...(metric ? { 'data-metric': metric } : {}) },
@@ -112,6 +141,61 @@ export function createMetricPanel(label, {
   let lastReadingAt = null;
   let lastReadingSimulated = false;
   let mode = readMetricView();
+  let shownValue = null;
+  let tweenFrame = null;
+  let lastHistoryLength = 0;
+  let lastHistoryTail = null;
+
+  function formatUsed(value, percent) {
+    return percent ? `${numberFormat.format(value)}%` : numberFormat.format(value);
+  }
+
+  function stopTween() {
+    if (tweenFrame !== null) globalThis.cancelAnimationFrame?.(tweenFrame);
+    tweenFrame = null;
+  }
+
+  /** Counts from the previous reading to the new one; the final text is always exact. */
+  function showUsed(value, percent) {
+    const from = shownValue;
+    shownValue = value;
+    stopTween();
+    if (from === null || from === value || !motionAllowed()) {
+      setText(used, formatUsed(value, percent));
+      return;
+    }
+    const start = globalThis.performance?.now?.() ?? Date.now();
+    const step = (time) => {
+      const t = Math.min(1, (time - start) / tweenMs);
+      const current = t >= 1 ? value : from + (value - from) * easeOut(t);
+      setText(used, formatUsed(t >= 1 ? value : Math.round(current * 100) / 100, percent));
+      tweenFrame = t >= 1 ? null : globalThis.requestAnimationFrame(step);
+    };
+    tweenFrame = globalThis.requestAnimationFrame(step);
+  }
+
+  /** A full 60-sample window slides left by one step instead of jumping. */
+  function slidePlot(count, tail) {
+    const shifted = count >= 2 && count === lastHistoryLength && tail !== lastHistoryTail;
+    lastHistoryLength = count;
+    lastHistoryTail = tail;
+    if (!shifted || typeof plot.animate !== 'function' || !motionAllowed()) return;
+    const distance = 296 / (count - 1);
+    plot.animate([{ transform: `translateX(${distance.toFixed(2)}px)` }, { transform: 'translateX(0)' }],
+      { duration: tweenMs, easing: 'cubic-bezier(.2,.7,.2,1)' });
+  }
+
+  function setLoad(ratio) {
+    const band = loadBand(ratio);
+    if (!band) {
+      section.removeAttribute('data-load');
+      section.style?.removeProperty('--load');
+      return;
+    }
+    section.setAttribute('data-load', band);
+    // CSSOM, not a style attribute: the site CSP is style-src 'self'.
+    section.style?.setProperty('--load', Math.max(0, Math.min(1, ratio)).toFixed(3));
+  }
 
   function syncChrome() {
     const wave = showHistory && mode === 'wave';
@@ -138,6 +222,10 @@ export function createMetricPanel(label, {
     setText(readingNote, old ? `上次读数${readingTime ? ` · ${readingTime}` : ''}` : '');
 
     if (!shown) {
+      stopTween();
+      shownValue = null;
+      setLoad(null);
+      head.setAttribute('hidden', '');
       setText(used, '—');
       setText(total, '');
       setText(percentage, loading ? pendingLabel : unavailableLabel);
@@ -153,7 +241,8 @@ export function createMetricPanel(label, {
     }
 
     const percent = shown.unit === '%';
-    setText(used, percent ? `${numberFormat.format(shown.used)}%` : numberFormat.format(shown.used));
+    showUsed(shown.used, percent);
+    setLoad(shown.used / shown.total);
     setText(total, percent ? '' : `/ ${numberFormat.format(shown.total)} ${shown.unit}`);
     setText(percentage, percent ? '占用' : `${shown.percentage}% 已使用`);
     setText(available, percent
@@ -178,7 +267,13 @@ export function createMetricPanel(label, {
         return `${x.toFixed(2)},${y.toFixed(2)}`;
       });
       line.setAttribute('points', points.join(' '));
-    }
+      area.setAttribute('points', `${points.join(' ')} 298,76 2,76`);
+      const [x, y] = points[points.length - 1].split(',').map(Number);
+      head.style?.setProperty('left', `${(x / 300 * 100).toFixed(2)}%`);
+      head.style?.setProperty('top', `${(y / 76 * 100).toFixed(2)}%`);
+      head.removeAttribute('hidden');
+      slidePlot(shown.history.length, shown.history[shown.history.length - 1]);
+    } else head.setAttribute('hidden', '');
     setText(chartCaption, lastReadingSimulated ? '示例趋势'
       : shown.history.length < 2 ? '采样积累中' : `最近 ${shown.history.length} 次真实采样`);
     syncChrome();

@@ -7,4 +7,9 @@
     : saved?.mode === 'solar' && ['light', 'dark'].includes(saved?.resolved) ? saved.resolved : system;
   document.documentElement.setAttribute('data-theme', theme);
   document.documentElement.setAttribute('data-bs-theme', theme);
+  // Motion tier: low-end or data-saver devices keep transitions but skip looping effects.
+  const nav = typeof navigator === 'undefined' ? null : navigator;
+  const lite = Boolean(nav && ((nav.hardwareConcurrency && nav.hardwareConcurrency <= 2)
+    || (nav.deviceMemory && nav.deviceMemory <= 2) || nav.connection?.saveData));
+  document.documentElement.setAttribute('data-motion', lite ? 'lite' : 'full');
 })();

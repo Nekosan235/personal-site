@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createPoller, PollTimeoutError } from '../public/assets/components/poller.js';
-import { readMetric, createMetricPanel, metricViewKey, readMetricView, setMetricViewMode } from '../public/assets/components/metric.js';
+import { readMetric, createMetricPanel, metricViewKey, readMetricView, setMetricViewMode, loadBand, motionAllowed } from '../public/assets/components/metric.js';
 import { createDashboardView, dashboardHealth, sampleTime, formatCpu } from '../public/assets/pages/dashboard.js';
 
 const settle = async () => { for (let index = 0; index < 12; index += 1) await Promise.resolve(); };
@@ -382,7 +382,7 @@ test('device cards default to waveforms, toggle to progress bars, and share one 
     assert.match(short.element.textContent, /采样积累中/);
     short.update({ used: 12, total: 100, available: 88, unit: '%', history: [10, 12] });
     assert.equal(findClass(short.element, 'metric-sparkline').getAttribute('hidden'), null);
-    assert.match(findClass(short.element, 'metric-sparkline').children[0].getAttribute('points'), /,/);
+    assert.match(findClass(short.element, 'metric-line').getAttribute('points'), /,/);
 
     const payload = sample();
     payload.server.cpuPercent = 22;
@@ -398,9 +398,9 @@ test('device cards default to waveforms, toggle to progress bars, and share one 
     assert.equal(findClass(cpuPanel, 'metric-progress').getAttribute('hidden'), '');
     assert.equal(findClass(cpuPanel, 'metric-chart').getAttribute('hidden'), null);
     assert.match(findClass(cpuPanel, 'metric-used').textContent, /22%/);
-    assert.match(findClass(cpuPanel, 'metric-sparkline').children[0].getAttribute('points'), /,/);
+    assert.match(findClass(cpuPanel, 'metric-line').getAttribute('points'), /,/);
     assert.equal(findClass(memoryPanel, 'metric-progress').getAttribute('hidden'), '');
-    assert.match(findClass(memoryPanel, 'metric-sparkline').children[0].getAttribute('points'), /,/);
+    assert.match(findClass(memoryPanel, 'metric-line').getAttribute('points'), /,/);
     assert.match(memoryPanel.textContent, /最近 3 次真实采样/);
     assert.equal(findButtons(view.element, '波形')[0].getAttribute('aria-pressed'), 'true');
     assert.equal(findButtons(view.element, '进度')[0].getAttribute('aria-pressed'), 'false');
@@ -410,7 +410,7 @@ test('device cards default to waveforms, toggle to progress bars, and share one 
     assert.equal(memoryPanel.getAttribute('data-stale'), '');
     assert.match(findClass(cpuPanel, 'metric-used').textContent, /22%/);
     assert.match(findClass(memoryPanel, 'metric-used').textContent, /0\.7/);
-    assert.match(findClass(cpuPanel, 'metric-sparkline').children[0].getAttribute('points'), /,/);
+    assert.match(findClass(cpuPanel, 'metric-line').getAttribute('points'), /,/);
     assert.match(cpuPanel.textContent, /上次读数/);
 
     view.update(payload);
