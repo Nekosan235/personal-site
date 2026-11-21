@@ -2,8 +2,8 @@ import { element } from './dom.js?v=1.4.0';
 import { referenceCities } from './solar.js?v=1.4.0';
 
 const modes = [
-  ['light', '浅色', '回退到浅色工作台'],
-  ['dark', '深色', '终端密度，高对比'],
+  ['light', '浅色', '暖色纸面，适合白天'],
+  ['dark', '深色', '暖炭灰，适合夜间'],
   ['system', '跟随系统', '随设备外观切换'],
   ['solar', '日出日落', '白天浅色，夜晚深色'],
 ];
@@ -69,7 +69,7 @@ export function createAppearanceSettings(theme) {
     element('div', { className: 'appearance-heading' }, [
       element('h2', { text: '外观设置', attributes: { id: 'appearance-title' } }), close,
     ]),
-    element('p', { className: 'appearance-description', text: '深色是终端工作台。要离开它，选浅色、跟随系统，或日出日落。' }),
+    element('p', { className: 'appearance-description', text: '浅色是暖色纸面，深色是暖炭灰。也可以跟随系统，或按日出日落自动切换。' }),
     form,
     element('p', { className: 'appearance-footnote', text: '设置只保存在此浏览器。日出日落在本机计算，无需定位权限。' }),
   ]);
