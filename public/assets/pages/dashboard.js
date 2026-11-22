@@ -216,8 +216,12 @@ function createDeviceView({ now, index, signal, storage }) {
     const sampled = sampledAt instanceof Date && Number.isFinite(sampledAt.getTime()) ? sampledAt : null;
     const unavailable = Boolean(server?.cpuError) || (isRealData(data) && (!sampled || server?.status === 'error'));
     const source = cpuMetricSource(data);
-    if (readMetric(source)) {
+    const reading = readMetric(source);
+    if (reading) {
       cpu.update(source, { stale, sampledAt: sampled, simulated });
+      if (!stale && typeof globalThis.dispatchEvent === 'function' && typeof CustomEvent === 'function') {
+        globalThis.dispatchEvent(new CustomEvent('site:cpu-load', { detail: reading.used / reading.total }));
+      }
       return;
     }
     cpu.update(null, { stale: unavailable || stale, loading: !unavailable && !stale });

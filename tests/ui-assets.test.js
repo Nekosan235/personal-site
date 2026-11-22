@@ -216,3 +216,17 @@ test('pre-paint bootstrap sets both native and Tabler theme attributes', async (
     assert.equal(attrs.get('data-bs-theme'), mode);
   }
 });
+
+test('login-page assets for the instrument theme are public and fonts use the woff2 type', async (t) => {
+  const app = await fixture(t);
+  const backdrop = await app.request('/assets/components/backdrop.js?v=3.0.0');
+  assert.equal(backdrop.status, 200);
+  assert.doesNotMatch(await backdrop.text(), /from '\.\/metric\.js/);
+  for (const name of ['barlow-latin-400-normal', 'barlow-latin-500-normal', 'barlow-latin-600-normal',
+    'barlow-semi-condensed-latin-500-normal', 'barlow-semi-condensed-latin-600-normal']) {
+    const response = await app.request(`/assets/fonts/${name}.woff2`);
+    assert.equal(response.status, 200, name);
+    assert.equal(response.headers.get('content-type'), 'font/woff2');
+  }
+  assert.equal((await app.request('/assets/fonts/LICENSE-Barlow-OFL.txt')).status === 200, false);
+});
