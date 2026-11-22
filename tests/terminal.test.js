@@ -503,3 +503,19 @@ test('the example env documents the three fleet slots and contains no private ke
   assert.match(caddy, /Strict-Transport-Security "max-age=31536000"/);
   assert.doesNotMatch(caddy, /Strict-Transport-Security[^\n]*preload/i);
 });
+
+test('a client resetting during a rejected upgrade does not crash the server', async (t) => {
+  const app = await fixture(t);
+  const { connect } = await import('node:net');
+  const url = new URL(app.base);
+  for (let i = 0; i < 20; i += 1) {
+    const raw = connect(Number(url.port), url.hostname);
+    await once(raw, 'connect');
+    raw.write(`GET /api/terminal/session?server=cloud-01 HTTP/1.1\r\nHost: ${url.host}\r\nOrigin: ${app.base}\r\n`
+      + 'Connection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n');
+    raw.resetAndDestroy();
+  }
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  const response = await fetch(new URL('/login', app.base));
+  assert.equal(response.status, 200);
+});

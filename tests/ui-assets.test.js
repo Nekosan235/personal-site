@@ -222,11 +222,11 @@ test('login-page assets for the instrument theme are public and fonts use the wo
   const backdrop = await app.request('/assets/components/backdrop.js?v=3.0.0');
   assert.equal(backdrop.status, 200);
   assert.doesNotMatch(await backdrop.text(), /from '\.\/metric\.js/);
-  for (const name of ['barlow-latin-400-normal', 'barlow-latin-500-normal', 'barlow-latin-600-normal',
-    'barlow-semi-condensed-latin-500-normal', 'barlow-semi-condensed-latin-600-normal']) {
+  for (const name of ['archivo-latin-700-normal', 'archivo-latin-900-normal',
+    'space-mono-latin-400-normal', 'space-mono-latin-700-normal']) {
     const response = await app.request(`/assets/fonts/${name}.woff2`);
     assert.equal(response.status, 200, name);
     assert.equal(response.headers.get('content-type'), 'font/woff2');
   }
-  assert.equal((await app.request('/assets/fonts/LICENSE-Barlow-OFL.txt')).status === 200, false);
+  assert.equal((await app.request('/assets/fonts/LICENSE-Archivo-OFL.txt')).status === 200, false);
 });

@@ -32,11 +32,10 @@ const PUBLIC_ASSETS = new Set([
   '/assets/components/solar.js',
   '/assets/components/theme.js',
   '/assets/components/backdrop.js',
-  '/assets/fonts/barlow-latin-400-normal.woff2',
-  '/assets/fonts/barlow-latin-500-normal.woff2',
-  '/assets/fonts/barlow-latin-600-normal.woff2',
-  '/assets/fonts/barlow-semi-condensed-latin-500-normal.woff2',
-  '/assets/fonts/barlow-semi-condensed-latin-600-normal.woff2',
+  '/assets/fonts/archivo-latin-700-normal.woff2',
+  '/assets/fonts/archivo-latin-900-normal.woff2',
+  '/assets/fonts/space-mono-latin-400-normal.woff2',
+  '/assets/fonts/space-mono-latin-700-normal.woff2',
 ]);
 const PROTECTED_ASSET_PREFIXES = ['/assets/components/', '/assets/pages/', '/assets/portfolio/', '/assets/vendor/xterm/'];
 const PROTECTED_ASSETS = new Set(['/assets/app.js']);

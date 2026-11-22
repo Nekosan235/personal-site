@@ -265,6 +265,10 @@ function findButtons(node, text) {
   return matches.concat(node.children.flatMap((child) => findButtons(child, text)));
 }
 
+function visibleBars(node) {
+  return findClasses(node, 'metric-bar').filter((bar) => bar.getAttribute('hidden') === null);
+}
+
 function findClasses(node, name) {
   const result = node.className.split(/\s+/).includes(name) ? [node] : [];
   return result.concat(node.children.flatMap((child) => findClasses(child, name)));
@@ -378,11 +382,15 @@ test('device cards default to waveforms, toggle to progress bars, and share one 
     const short = createMetricPanel('CPU', { metric: 'cpu', pendingLabel: '采样积累中', unavailableLabel: 'CPU 暂不可用' });
     short.setViewMode('wave');
     short.update({ used: 10, total: 100, available: 90, unit: '%', history: [10] });
-    assert.equal(findClass(short.element, 'metric-sparkline').getAttribute('hidden'), '');
+    assert.equal(findClass(short.element, 'metric-stage').getAttribute('hidden'), '');
+    assert.equal(findClass(short.element, 'metric-readout').getAttribute('hidden'), '');
+    assert.equal(findClasses(short.element, 'metric-bar').length, 0);
     assert.match(short.element.textContent, /采样积累中/);
     short.update({ used: 12, total: 100, available: 88, unit: '%', history: [10, 12] });
-    assert.equal(findClass(short.element, 'metric-sparkline').getAttribute('hidden'), null);
-    assert.match(findClass(short.element, 'metric-line').getAttribute('points'), /,/);
+    assert.equal(findClass(short.element, 'metric-stage').getAttribute('hidden'), null);
+    assert.equal(findClass(short.element, 'metric-readout').getAttribute('hidden'), null);
+    assert.equal(visibleBars(short.element).length, 2);
+    assert.equal(visibleBars(short.element)[1].getAttribute('data-live'), '');
 
     const payload = sample();
     payload.server.cpuPercent = 22;
@@ -398,9 +406,10 @@ test('device cards default to waveforms, toggle to progress bars, and share one 
     assert.equal(findClass(cpuPanel, 'metric-progress').getAttribute('hidden'), '');
     assert.equal(findClass(cpuPanel, 'metric-chart').getAttribute('hidden'), null);
     assert.match(findClass(cpuPanel, 'metric-used').textContent, /22%/);
-    assert.match(findClass(cpuPanel, 'metric-line').getAttribute('points'), /,/);
+    assert.equal(visibleBars(cpuPanel).length, 3);
     assert.equal(findClass(memoryPanel, 'metric-progress').getAttribute('hidden'), '');
-    assert.match(findClass(memoryPanel, 'metric-line').getAttribute('points'), /,/);
+    assert.equal(visibleBars(memoryPanel).length, 3);
+    assert.equal(findClass(memoryPanel, 'metric-readout').textContent, 'MIN0.4 GiBMAX0.7 GiBNOW0.7 GiB');
     assert.match(memoryPanel.textContent, /最近 3 次真实采样/);
     assert.equal(findButtons(view.element, '波形')[0].getAttribute('aria-pressed'), 'true');
     assert.equal(findButtons(view.element, '进度')[0].getAttribute('aria-pressed'), 'false');
@@ -410,7 +419,8 @@ test('device cards default to waveforms, toggle to progress bars, and share one 
     assert.equal(memoryPanel.getAttribute('data-stale'), '');
     assert.match(findClass(cpuPanel, 'metric-used').textContent, /22%/);
     assert.match(findClass(memoryPanel, 'metric-used').textContent, /0\.7/);
-    assert.match(findClass(cpuPanel, 'metric-line').getAttribute('points'), /,/);
+    assert.equal(visibleBars(cpuPanel).length, 3);
+    assert.equal(findClass(cpuPanel, 'metric-readout').textContent, 'MIN10%MAX22%LAST22%');
     assert.match(cpuPanel.textContent, /上次读数/);
 
     view.update(payload);

@@ -57,6 +57,8 @@ export function attachTerminalGateway(server, {
   }
 
   function onUpgrade(request, socket, head) {
+    // A client that resets mid-handshake must not crash the process (unhandled ECONNRESET).
+    socket.on('error', () => socket.destroy());
     let url;
     try {
       url = new URL(request.url ?? '/', 'http://internal');

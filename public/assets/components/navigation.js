@@ -77,7 +77,7 @@ export function createNavigation({ modules, username, onLogout, onAppearance }) 
   });
   const shell = element('div', { className: 'navigation-shell' }, [sidebar, backdrop, topbar]);
   const content = document.querySelector('.page-wrapper');
-  const desktop = window.matchMedia('(min-width: 992px)');
+  const desktop = window.matchMedia('(min-width: 1200px)');
 
   function closeMenu({ restoreFocus = false } = {}) {
     toggle.setAttribute('aria-expanded', 'false');

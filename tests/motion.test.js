@@ -52,14 +52,19 @@ test('metric panels publish load for CSS and show the exact final value', () => 
   assert.equal(panel.element.style.props.get('--load'), '0.910');
   assert.equal(panel.element.getAttribute('style'), null);
   assert.equal(find(panel.element, 'metric-used').textContent, '91%');
-  assert.equal(find(panel.element, 'metric-head').getAttribute('hidden'), null);
-  assert.match(find(panel.element, 'metric-area').getAttribute('points'), /298,76 2,76$/);
+  const live = find(panel.element, 'metric-track').children[1];
+  assert.equal(live.getAttribute('data-live'), '');
+  assert.equal(live.getAttribute('data-band'), 'hot');
+  assert.equal(live.style.props.get('--h'), '0.910');
+  assert.equal(live.getAttribute('style'), null);
+  assert.equal(find(panel.element, 'metric-stage').getAttribute('hidden'), null);
   panel.update({ used: 30, total: 100, unit: '%', history: [80, 91, 30] });
   assert.equal(panel.element.getAttribute('data-load'), 'calm');
   panel.update(null, { retainLast: false });
   assert.equal(panel.element.getAttribute('data-load'), null);
   assert.equal(panel.element.style.props.has('--load'), false);
-  assert.equal(find(panel.element, 'metric-head').getAttribute('hidden'), '');
+  assert.equal(find(panel.element, 'metric-stage').getAttribute('hidden'), '');
+  assert.equal(find(panel.element, 'metric-readout').getAttribute('hidden'), '');
 }));
 
 test('bootstrap picks a motion tier from device capability', () => {

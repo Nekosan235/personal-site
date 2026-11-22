@@ -1,6 +1,5 @@
 import { element } from './dom.js?v=1.4.0';
 
-const namespace = 'http://www.w3.org/2000/svg';
 const numberFormat = new Intl.NumberFormat('zh-CN', { maximumFractionDigits: 2 });
 
 export const metricViewKey = 'personal-space.metric-view.v1';
@@ -91,6 +90,26 @@ export function motionAllowed(scope = globalThis) {
 
 const tweenMs = 600;
 const easeOut = (t) => 1 - (1 - t) ** 3;
+const slideEasing = 'cubic-bezier(.2,.7,.2,1)';
+
+/** Threshold rules drawn across the bar chart; they match the loadBand() cut points. */
+export const metricThresholds = Object.freeze([60, 85]);
+
+const sameSeries = (left, right) => left.length === right.length
+  && left.every((value, index) => value === right[index]);
+
+/**
+ * How the sample window changed between two renders:
+ * 'append' (one new sample, window not yet full), 'shift' (full window slid by one),
+ * 'same' (re-render of identical data) or 'reset' (anything else — no animation).
+ */
+export function historyStep(previous, next) {
+  if (!Array.isArray(previous) || !Array.isArray(next) || previous.length < 1) return 'reset';
+  if (sameSeries(previous, next)) return 'same';
+  if (next.length === previous.length + 1 && sameSeries(previous, next.slice(0, -1))) return 'append';
+  if (next.length === previous.length && sameSeries(previous.slice(1), next.slice(0, -1))) return 'shift';
+  return 'reset';
+}
 
 export function createMetricPanel(label, {
   showHistory = true,
@@ -106,24 +125,36 @@ export function createMetricPanel(label, {
   const readingNote = element('span', { className: 'metric-reading-note' });
   const capacityNote = element('p', { className: 'metric-capacity-note' });
   const chartCaption = element('span', { className: 'chart-caption', text: '采样积累中' });
-  const svg = document.createElementNS(namespace, 'svg');
-  svg.setAttribute('viewBox', '0 0 300 76');
-  svg.setAttribute('preserveAspectRatio', 'none');
-  svg.setAttribute('class', 'metric-sparkline');
-  svg.setAttribute('role', 'img');
-  svg.setAttribute('aria-label', `${label}真实采样变化`);
-  const line = document.createElementNS(namespace, 'polyline');
-  line.setAttribute('vector-effect', 'non-scaling-stroke');
-  line.setAttribute('class', 'metric-line');
-  const area = document.createElementNS(namespace, 'polygon');
-  area.setAttribute('class', 'metric-area');
-  const plot = document.createElementNS(namespace, 'g');
-  plot.setAttribute('class', 'metric-plot');
-  plot.append(area, line);
-  svg.append(plot);
-  const head = element('span', { className: 'metric-head', attributes: { 'aria-hidden': 'true', hidden: '' } });
-  const stage = element('div', { className: 'metric-stage' }, [svg, head]);
-  const chart = element('div', { className: 'metric-chart' }, [stage, chartCaption]);
+  // 采样柱: one HTML block per sample. HTML (not a stretched SVG) keeps ink edges crisp.
+  const track = element('div', { className: 'metric-track' });
+  const bars = [];
+  const barWindow = element('div', { className: 'metric-bars' }, [track]);
+  const rules = metricThresholds.map((threshold) => element('span', {
+    className: 'metric-rule',
+    attributes: { 'data-threshold': threshold },
+  }, [element('span', { className: 'metric-rule-label', text: String(threshold) })]));
+  const stage = element('div', {
+    className: 'metric-stage',
+    attributes: { role: 'img', 'aria-label': `${label}真实采样变化`, hidden: '' },
+  }, [barWindow, ...rules]);
+  const stat = (name, key) => {
+    const keyNode = element('span', { className: 'metric-stat-key', text: key });
+    const valueNode = element('span', { className: 'metric-stat-value', text: '—' });
+    return {
+      key: keyNode,
+      value: valueNode,
+      cell: element('span', { className: 'metric-stat', attributes: { 'data-stat': name } }, [keyNode, valueNode]),
+    };
+  };
+  const minStat = stat('min', 'MIN');
+  const maxStat = stat('max', 'MAX');
+  const nowStat = stat('now', 'NOW');
+  // The stage's aria-label already speaks these figures; the strip is visual only.
+  const readout = element('div', {
+    className: 'metric-readout',
+    attributes: { 'aria-hidden': 'true', hidden: '' },
+  }, [minStat.cell, maxStat.cell, nowStat.cell]);
+  const chart = element('div', { className: 'metric-chart' }, [chartCaption, stage, readout]);
   const section = element('section', {
     className: 'metric-panel',
     attributes: { 'aria-label': `${label}使用情况`, ...(metric ? { 'data-metric': metric } : {}) },
@@ -143,11 +174,14 @@ export function createMetricPanel(label, {
   let mode = readMetricView();
   let shownValue = null;
   let tweenFrame = null;
-  let lastHistoryLength = 0;
-  let lastHistoryTail = null;
+  let lastHistory = null;
 
   function formatUsed(value, percent) {
     return percent ? `${numberFormat.format(value)}%` : numberFormat.format(value);
+  }
+
+  function formatAmount(value, unit) {
+    return unit === '%' ? `${numberFormat.format(value)}%` : `${numberFormat.format(value)} ${unit}`;
   }
 
   function stopTween() {
@@ -174,15 +208,51 @@ export function createMetricPanel(label, {
     tweenFrame = globalThis.requestAnimationFrame(step);
   }
 
-  /** A full 60-sample window slides left by one step instead of jumping. */
-  function slidePlot(count, tail) {
-    const shifted = count >= 2 && count === lastHistoryLength && tail !== lastHistoryTail;
-    lastHistoryLength = count;
-    lastHistoryTail = tail;
-    if (!shifted || typeof plot.animate !== 'function' || !motionAllowed()) return;
-    const distance = 296 / (count - 1);
-    plot.animate([{ transform: `translateX(${distance.toFixed(2)}px)` }, { transform: 'translateX(0)' }],
-      { duration: tweenMs, easing: 'cubic-bezier(.2,.7,.2,1)' });
+  /** One bar per sample; nodes are reused and surplus ones hidden, never re-created. */
+  function renderBars(history, capacity) {
+    const count = history.length;
+    while (bars.length < count) {
+      const bar = element('span', { className: 'metric-bar' });
+      bars.push(bar);
+      track.append(bar);
+    }
+    stage.setAttribute('data-count', String(count));
+    for (const [index, bar] of bars.entries()) {
+      if (index >= count) {
+        bar.setAttribute('hidden', '');
+        bar.removeAttribute('data-live');
+        continue;
+      }
+      const ratio = Math.max(0, Math.min(1, history[index] / capacity));
+      bar.removeAttribute('hidden');
+      bar.setAttribute('data-band', loadBand(ratio));
+      bar.toggleAttribute('data-live', index === count - 1);
+      // CSSOM, not a style attribute: the site CSP is style-src 'self'.
+      bar.style?.setProperty('--h', ratio.toFixed(3));
+    }
+  }
+
+  /** Distance between two settled (non-live) bars, i.e. one sample step in pixels. */
+  function slotDistance(count) {
+    const left = bars[count - 3]?.offsetLeft;
+    const right = bars[count - 2]?.offsetLeft;
+    if (Number.isFinite(left) && Number.isFinite(right) && right > left) return `${right - left}px`;
+    return `calc(100% / ${count})`;
+  }
+
+  /** A full window slides left by one sample; the new live bar grows up from the baseline. */
+  function animateStep(step, count) {
+    if ((step !== 'shift' && step !== 'append') || count < 2) return;
+    if (!showHistory || mode !== 'wave' || !motionAllowed()) return;
+    if (step === 'shift' && typeof track.animate === 'function') {
+      track.animate([{ transform: `translateX(${slotDistance(count)})` }, { transform: 'translateX(0)' }],
+        { duration: tweenMs, easing: slideEasing });
+    }
+    const live = bars[count - 1];
+    if (!live) return;
+    live.setAttribute('data-grow', '');
+    void live.offsetWidth; // Commit scaleY(0) so removing the flag runs the CSS transition.
+    live.removeAttribute('data-grow');
   }
 
   function setLoad(ratio) {
@@ -224,8 +294,8 @@ export function createMetricPanel(label, {
     if (!shown) {
       stopTween();
       shownValue = null;
+      lastHistory = null;
       setLoad(null);
-      head.setAttribute('hidden', '');
       setText(used, '—');
       setText(total, '');
       setText(percentage, loading ? pendingLabel : unavailableLabel);
@@ -234,7 +304,8 @@ export function createMetricPanel(label, {
       progress.setAttribute('value', '0');
       progress.setAttribute('max', '1');
       progress.setAttribute('aria-label', `${label}数据暂不可用`);
-      svg.setAttribute('hidden', '');
+      stage.setAttribute('hidden', '');
+      readout.setAttribute('hidden', '');
       setText(chartCaption, loading ? '等待首次采样' : '暂无采样数据');
       syncChrome();
       return;
@@ -258,24 +329,28 @@ export function createMetricPanel(label, {
     progress.setAttribute('aria-label', percent
       ? `${label} ${numberFormat.format(shown.used)}%${old ? '，上次读数' : ''}`
       : `${label}已使用 ${numberFormat.format(shown.used)} ${shown.unit}，共 ${numberFormat.format(shown.total)} ${shown.unit}${old ? '，上次读数' : ''}`);
-    svg.toggleAttribute('hidden', shown.history.length < 2);
-    svg.setAttribute('aria-label', `${label}${lastReadingSimulated ? '示例趋势' : '真实采样变化'}`);
-    if (shown.history.length >= 2) {
-      const points = shown.history.map((value, index) => {
-        const x = 2 + (index / (shown.history.length - 1)) * 296;
-        const y = 70 - (value / shown.total) * 62;
-        return `${x.toFixed(2)},${y.toFixed(2)}`;
-      });
-      line.setAttribute('points', points.join(' '));
-      area.setAttribute('points', `${points.join(' ')} 298,76 2,76`);
-      const [x, y] = points[points.length - 1].split(',').map(Number);
-      head.style?.setProperty('left', `${(x / 300 * 100).toFixed(2)}%`);
-      head.style?.setProperty('top', `${(y / 76 * 100).toFixed(2)}%`);
-      head.removeAttribute('hidden');
-      slidePlot(shown.history.length, shown.history[shown.history.length - 1]);
-    } else head.setAttribute('hidden', '');
+
+    const { history } = shown;
+    const charted = history.length >= 2;
+    stage.toggleAttribute('hidden', !charted);
+    readout.toggleAttribute('hidden', !charted);
+    if (charted) {
+      const step = historyStep(lastHistory, history);
+      renderBars(history, shown.total);
+      const low = formatAmount(Math.min(...history), shown.unit);
+      const high = formatAmount(Math.max(...history), shown.unit);
+      const now = formatAmount(shown.used, shown.unit);
+      setText(minStat.value, low);
+      setText(maxStat.value, high);
+      setText(nowStat.key, old ? 'LAST' : 'NOW');
+      setText(nowStat.value, now);
+      stage.setAttribute('aria-label', `${label}${lastReadingSimulated ? '示例趋势' : '真实采样变化'}：`
+        + `最近 ${history.length} 次，最低 ${low}，最高 ${high}，${old ? '上次读数' : '当前'} ${now}`);
+      animateStep(step, history.length);
+    }
+    lastHistory = history.slice();
     setText(chartCaption, lastReadingSimulated ? '示例趋势'
-      : shown.history.length < 2 ? '采样积累中' : `最近 ${shown.history.length} 次真实采样`);
+      : !charted ? '采样积累中' : `最近 ${history.length} 次真实采样`);
     syncChrome();
   }
 
