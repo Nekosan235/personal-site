@@ -86,7 +86,8 @@ ssh -N -L 127.0.0.1:7002:127.0.0.1:7002 ops@192.0.2.10
 - 队列：新建后先处于「待上传」(`draft`)，音频落盘后进入服务器内的 FIFO 队列，状态依次是「待转写 → 正在转写 → 已转写」，失败时显示「转写失败」和原因，可点「重试转写」。并发数由 `MEETINGS_CONCURRENCY` 控制，默认 1。上传中途关掉标签页会留下一条 `draft`，下次启动不会被当成排队任务。
 - 归档：每条会议在 `MEETINGS_DIR`（默认 `DATA_DIR/meetings`）下有自己的目录，形如 `data/meetings/<id>/`，包含 `meta.json`、`audio.<ext>`、`transcript.json`、`transcript.md`、`transcript.txt`。页面按会议展示卡片，可查看逐段转写稿、下载 Markdown。
 - 释放空间：「删除录音（保留转写）」只删 `audio.<ext>` 并把 `meta.json` 里的 `audio.deleted` 置为 true，转写稿与导出文件不动。整条「删除记录」才会移除整个目录。
-- 崩溃恢复：服务启动时会把残留的 `transcribing` 改回 `queued` 并重新入队，避免任务卡死。
+- 崩溃恢复：服务启动时会把残留的 `transcribing` 改回 `queued` 并重新入队，避免任务卡死；没有录音的 `queued` 会标成失败。正常停服（SIGTERM）会中止正在进行的转写并把它放回 `queued`，不会等满 `MEETINGS_TIMEOUT_MS`；下次启动时重新上传转写（AssemblyAI 会按新任务再计费一次）。
+- 替换录音：对已有录音的记录再次上传会替换旧文件并重新排队；正在转写旧录音时上传的新文件，会在旧任务结束后自动转写，旧结果丢弃。
 - 中英混说：转写请求带 `language_detection`，说话人分离用 `speaker_options`（默认允许 1–8 位说话人）。AssemblyAI 对中文按字分词、字间带空格，落盘前会做一次清理（`server/meetings/render.js`），与独立转写脚本的处理一致。
 - Codex 纪要：`POST /api/meetings/:id/summary` 目前返回 501，等接入 Codex 后再补；页面暂时不暴露入口。
 
@@ -98,11 +99,16 @@ MEETINGS_MODEL=assemblyai-stt-3-7
 MEETINGS_CONCURRENCY=1
 MEETINGS_MAX_UPLOAD_BYTES=209715200
 MEETINGS_KEYTERMS=PG,产线,自动化
+# 可选
+# MEETINGS_DIR=meetings              # 相对 DATA_DIR；systemd 的 ProtectSystem=strict 下必须留在 StateDirectory 内
+# MEETINGS_POLL_INTERVAL_MS=5000     # 1000–60000
+# MEETINGS_TIMEOUT_MS=2700000        # 单个任务轮询上限，60000–10800000
+# ASSEMBLYAI_BASE_URL=https://api.assemblyai.com
 ```
 
 `ASSEMBLYAI_BASE_URL` 默认 `https://api.assemblyai.com`，生产只允许 https（回环 http 仅供本地联调）。`MEETINGS_KEYTERMS` 用逗号或换行分隔，最多 400 项，会作为 `keyterms_prompt` 提升专有名词命中。没有配置 `ASSEMBLYAI_API_KEY` 时上传仍然成功，但转写会以「尚未配置 ASSEMBLYAI_API_KEY」失败，方便先把文件存下来。
 
-接口一览（全部在 `/api/meetings` 下，除列表与详情外都需要 CSRF）：
+接口一览（全部在 `/api/meetings` 下，都需要登录会话；POST 与 DELETE 还需要 `X-CSRF-Token` 与同源 `Origin`）：
 
 | 方法 | 路径 | 作用 |
 | --- | --- | --- |
@@ -112,6 +118,7 @@ MEETINGS_KEYTERMS=PG,产线,自动化
 | GET | `/api/meetings/:id` | 单条详情 |
 | GET | `/api/meetings/:id/audio` | 播放/下载录音（支持 Range） |
 | DELETE | `/api/meetings/:id/audio` | 删除录音，保留转写 |
+| POST | `/api/meetings/:id/audio/delete` | 同上（给不便发 DELETE 的客户端用的别名） |
 | POST | `/api/meetings/:id/transcribe` | 重新排队 |
 | GET | `/api/meetings/:id/transcript?format=json\|md\|txt` | 转写稿 |
 | POST | `/api/meetings/:id/summary` | Codex 纪要占位，返回 501 |

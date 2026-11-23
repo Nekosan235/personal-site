@@ -59,6 +59,8 @@ const MEETINGS_MESSAGES = {
   uploadFailed: '上传失败，请稍后重试。',
   empty: '请选择要上传的录音文件。',
   badFormat: '不支持的转写稿格式。',
+  uploadAborted: '上传已中断。',
+  audioDeleted: '录音已删除，且没有转写稿。',
 };
 
 const MAX_CONCURRENT_UPLOADS = 2;
@@ -114,45 +116,52 @@ function publicMeeting(meta, queue) {
   };
 }
 
+// Settles only after the file descriptor is closed ('close'), so the caller
+// can rename or delete the .part right away — Windows refuses both on an open
+// file. A client that disconnects mid-body is detected through 'close' with
+// an incomplete request, which also covers runtimes that no longer emit
+// 'aborted'.
 function streamToFile(req, destination, maxBytes) {
   return new Promise((resolve, reject) => {
     const output = createWriteStream(destination, { flags: 'w' });
     let size = 0;
+    let failure = null;
     let settled = false;
 
-    function finish(error) {
+    function settle() {
       if (settled) return;
       settled = true;
       req.off('data', onData);
+      if (failure) reject(failure);
+      else resolve(size);
+    }
+
+    function fail(error) {
+      if (failure || settled) return;
+      failure = error;
+      req.off('data', onData);
       req.unpipe(output);
-      if (error) {
-        output.destroy();
-        req.resume();
-        reject(error);
-      } else {
-        output.end(() => resolve(size));
-      }
+      req.resume();
+      output.destroy();
     }
 
     function onData(chunk) {
       size += chunk.length;
       if (size > maxBytes) {
-        finish(Object.assign(new Error(MEETINGS_MESSAGES.tooLarge), { statusCode: 413 }));
+        fail(Object.assign(new Error(MEETINGS_MESSAGES.tooLarge), { statusCode: 413 }));
       }
     }
 
-    output.on('error', (error) => finish(error));
-    req.on('aborted', () => finish(Object.assign(new Error('上传已中断'), { statusCode: 400 })));
-    req.on('error', (error) => finish(error));
+    const aborted = () => fail(Object.assign(new Error(MEETINGS_MESSAGES.uploadAborted), { statusCode: 400 }));
+    output.on('error', fail);
+    output.on('close', settle);
+    req.on('aborted', aborted);
+    req.on('error', fail);
+    req.on('close', () => {
+      if (!req.complete) aborted();
+    });
     req.on('data', onData);
     req.pipe(output);
-    output.on('finish', () => {
-      if (!settled) {
-        settled = true;
-        req.off('data', onData);
-        resolve(size);
-      }
-    });
   });
 }
 
@@ -285,25 +294,30 @@ export function createMeetingsHandler({
         sendJson(res, 400, { error: MEETINGS_MESSAGES.empty });
         return;
       }
-      if (meta.audio && !meta.audio.deleted) {
-        await rm(store.audioFile(id, meta), { force: true });
-      }
-      const updated = await store.attachAudio(id, {
+      // One locked write: replace the recording (dropping an old file with a
+      // different extension) and queue it, based on the meta as it is *now*,
+      // not as it was when the upload started minutes ago.
+      const queued = await store.attachAudio(id, {
         temporaryPath: temporary,
         ext,
         bytes,
         mime: EXT_MIME.get(ext) ?? contentType,
         filename: name,
-      });
-      const queued = await store.patch(id, {
+      }, {
         status: 'queued',
         error: null,
         queue: { enqueuedAt: now(), startedAt: null, finishedAt: null },
       });
+      if (!queued) {
+        // The meeting was deleted while the upload was in flight.
+        await rm(temporary, { force: true }).catch(() => {});
+        sendJson(res, 404, { error: MEETINGS_MESSAGES.notFound });
+        return;
+      }
       queue.enqueue(id);
-      sendJson(res, 201, { meeting: publicMeeting(queued ?? updated, queue) });
+      sendJson(res, 201, { meeting: publicMeeting(queued, queue) });
     } catch (error) {
-      await rm(temporary, { force: true });
+      await rm(temporary, { force: true, maxRetries: 3 }).catch(() => {});
       if (error.statusCode === 413) {
         sendJson(res, 413, { error: MEETINGS_MESSAGES.tooLarge }, { Connection: 'close' });
         return;
@@ -331,11 +345,27 @@ export function createMeetingsHandler({
       sendJson(res, 409, { error: MEETINGS_MESSAGES.busyTranscribing });
       return;
     }
-    const updated = await store.patch(id, {
-      status: 'queued',
-      error: null,
-      queue: { enqueuedAt: now(), startedAt: null, finishedAt: null },
+    // Re-check under the lock: the audio may have been deleted or the worker
+    // may have started since the read above.
+    let refusal = MEETINGS_MESSAGES.notFound;
+    let refusalStatus = 404;
+    const updated = await store.update(id, (current) => {
+      if (!current.audio || current.audio.deleted) {
+        refusal = MEETINGS_MESSAGES.noAudio;
+        refusalStatus = 409;
+        return null;
+      }
+      if (current.status === 'transcribing') {
+        refusal = MEETINGS_MESSAGES.busyTranscribing;
+        refusalStatus = 409;
+        return null;
+      }
+      return { status: 'queued', error: null, queue: { enqueuedAt: now(), startedAt: null, finishedAt: null } };
     });
+    if (!updated) {
+      sendJson(res, refusalStatus, { error: refusal });
+      return;
+    }
     queue.enqueue(id);
     sendJson(res, 200, { meeting: publicMeeting(updated, queue) });
   }
@@ -346,13 +376,21 @@ export function createMeetingsHandler({
       sendJson(res, 404, { error: MEETINGS_MESSAGES.notFound });
       return;
     }
-    // Deleting the recording cancels any queued work for this meeting.
+    // Deleting the recording cancels any queued work for this meeting. A job
+    // that is already running notices the changed audio token and discards
+    // its result. Deleting the file and settling the status is one write.
     queue.dequeue?.(id);
-    let updated = await store.deleteAudio(id);
-    if (updated && (updated.status === 'queued' || updated.status === 'transcribing')) {
-      updated = updated.transcript
-        ? await store.patch(id, { status: 'done', error: null, queue: { finishedAt: now() } })
-        : await store.patch(id, { status: 'failed', error: '录音已删除，且没有转写稿。', queue: { finishedAt: now() } });
+    const updated = await store.deleteAudio(id, {
+      settle: (current) => {
+        if (current.status !== 'queued' && current.status !== 'transcribing') return {};
+        return current.transcript
+          ? { status: 'done', error: null, queue: { finishedAt: now() } }
+          : { status: 'failed', error: MEETINGS_MESSAGES.audioDeleted, queue: { finishedAt: now() } };
+      },
+    });
+    if (!updated) {
+      sendJson(res, 404, { error: MEETINGS_MESSAGES.notFound });
+      return;
     }
     sendJson(res, 200, { meeting: publicMeeting(updated, queue) });
   }
@@ -449,7 +487,7 @@ export function createMeetingsHandler({
             'Content-Length': String(end - start + 1),
             'Accept-Ranges': 'bytes',
           });
-          const stream = store.openAudio(id, meta);
+          const stream = store.openAudio(id, meta, { start, end });
           stream.on('error', () => res.destroy());
           stream.pipe(res);
           return;

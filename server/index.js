@@ -314,7 +314,7 @@ export function createApplication(options = {}) {
   const meetingService = createMeetingService({ store: meetingStore, client: meetingsClient, now, logger: console });
   const meetingsQueue = createTranscriptionQueue({
     concurrency: config.meetingsConcurrency,
-    run: (id) => meetingService.run(id),
+    run: (id, options) => meetingService.run(id, options),
     now,
   });
   const meetings = createMeetingsHandler({
@@ -329,7 +329,7 @@ export function createApplication(options = {}) {
   // A crash can leave a meeting stuck in transcribing; re-queue those on boot.
   void meetingStore.recover()
     .then((ids) => { for (const id of ids) meetingsQueue.enqueue(id); })
-    .catch(() => {});
+    .catch((error) => console.error('[meetings] 启动恢复失败:', error?.message ?? error));
 
   function renderLogin(res, { status = 200, username = '', showError = false, headers = {} } = {}) {
     const csrf = randomBytes(24).toString('base64url');
@@ -599,15 +599,19 @@ export function createApplication(options = {}) {
   server.nasMonitorStore = nasMonitorStore;
   server.close = (callback) => {
     terminal.close();
+    // Abort in-flight transcriptions (they go back to "queued" and resume on
+    // the next boot) instead of waiting up to MEETINGS_TIMEOUT_MS: systemd
+    // only allows TimeoutStopSec=20. Stop listening immediately, then wait
+    // for the workers' last meta writes before closing the session store.
     meetingsQueue.stop();
-    // Let an in-flight transcription finish its meta/transcript writes so a
-    // shutdown (or a test teardown) does not race the filesystem.
-    const finish = () => originalClose((error) => {
-      dashboardProvider?.stop?.();
-      store.close();
-      callback?.(error);
+    return originalClose((error) => {
+      const finish = () => {
+        dashboardProvider?.stop?.();
+        store.close();
+        callback?.(error);
+      };
+      Promise.resolve(meetingsQueue.drain?.()).then(finish, finish);
     });
-    Promise.resolve(meetingsQueue.drain?.()).then(finish, finish);
   };
   return server;
 }

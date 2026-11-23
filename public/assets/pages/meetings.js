@@ -61,6 +61,21 @@ function actionButton(label, className, onClick) {
   return button;
 }
 
+/**
+ * Which actions a meeting card offers, in display order. Pure so it can be
+ * tested without a DOM. Retry needs audio on disk (the server answers 409
+ * otherwise); deleting audio waits until a queued or running job settles.
+ */
+export function meetingActions(meeting) {
+  const actions = [];
+  const hasAudio = Boolean(meeting?.audio && !meeting.audio.deleted);
+  if (meeting?.transcript) actions.push('view', 'download');
+  if (meeting?.status === 'failed' && hasAudio) actions.push('retry');
+  if (hasAudio && !ACTIVE_STATUSES.has(meeting.status)) actions.push('deleteAudio');
+  actions.push('remove');
+  return actions;
+}
+
 function statTile(label, value, tone = '') {
   return element('div', { className: `meeting-stat card ${tone}` }, [
     element('span', { className: 'meeting-stat-value', text: String(value) }),
@@ -296,26 +311,26 @@ export async function renderMeetings({ session, signal }) {
     const actions = element('div', { className: 'meeting-actions' });
     const busy = state.busy.has(meeting.id);
 
-    if (meeting.transcript) {
-      actions.append(actionButton('查看转写稿', 'btn-outline-primary', () => void openTranscript(meeting)));
-      actions.append(element('a', {
-        className: 'btn btn-sm btn-outline-secondary',
-        text: '下载 .md',
-        attributes: {
-          href: `/api/meetings/${meeting.id}/transcript?format=md&download=1`,
-          download: '',
-        },
-      }));
+    for (const action of meetingActions(meeting)) {
+      if (action === 'view') {
+        actions.append(actionButton('查看转写稿', 'btn-outline-primary', () => void openTranscript(meeting)));
+      } else if (action === 'download') {
+        actions.append(element('a', {
+          className: 'btn btn-sm btn-outline-secondary',
+          text: '下载 .md',
+          attributes: {
+            href: `/api/meetings/${meeting.id}/transcript?format=md&download=1`,
+            download: '',
+          },
+        }));
+      } else if (action === 'retry') {
+        actions.append(actionButton(busy ? '排队中…' : '重试转写', 'btn-outline-primary', () => void retry(meeting)));
+      } else if (action === 'deleteAudio') {
+        actions.append(actionButton(busy ? '处理中…' : '删除录音（保留转写）', 'btn-outline-secondary', () => void removeAudio(meeting)));
+      } else if (action === 'remove') {
+        actions.append(actionButton('删除记录', 'btn-outline-danger', () => void removeMeeting(meeting)));
+      }
     }
-    if (meeting.status === 'failed') {
-      actions.append(actionButton(busy ? '排队中…' : '重试转写', 'btn-outline-primary', () => void retry(meeting)));
-    }
-    // Deleting audio while a job is queued would cancel it mid-flight; hide the
-    // action until the job settles.
-    if (audio && !audio.deleted && !ACTIVE_STATUSES.has(meeting.status)) {
-      actions.append(actionButton(busy ? '处理中…' : '删除录音（保留转写）', 'btn-outline-secondary', () => void removeAudio(meeting)));
-    }
-    actions.append(actionButton('删除记录', 'btn-outline-danger', () => void removeMeeting(meeting)));
 
     return element('article', {
       className: `meeting-card card`,

@@ -8,7 +8,11 @@ import { randomBytes } from 'node:crypto';
 import { createApplication } from '../server/index.js';
 import { loadConfig } from '../server/config.js';
 import { hashPassword } from '../server/auth/password.js';
+import { request as httpRequest } from 'node:http';
 import { MeetingStore } from '../server/meetings/store.js';
+import { createTranscriptionQueue } from '../server/meetings/queue.js';
+import { createAssemblyAiClient, TranscriptionError } from '../server/meetings/transcribe.js';
+import { meetingActions } from '../public/assets/pages/meetings.js';
 
 const USER = 'meeting-user';
 const PASSWORD = 'meeting-test-password';
@@ -50,7 +54,7 @@ async function waitFor(check, { timeout = 5000, interval = 25 } = {}) {
   }
 }
 
-async function appFixture(t, { overrides = {}, client = fakeClient() } = {}) {
+async function appFixture(t, { overrides = {}, client = fakeClient(), storeFactory } = {}) {
   const directory = await mkdtemp(join(tmpdir(), 'personal-site-meetings-'));
   await mkdir(join(directory, 'public'), { recursive: true });
   await writeFile(
@@ -70,13 +74,14 @@ async function appFixture(t, { overrides = {}, client = fakeClient() } = {}) {
     MONITORING_MODE: 'mock',
     ...overrides,
   });
-  const server = createApplication({ config, meetingsClient: client });
+  const meetingStore = storeFactory ? storeFactory(config) : undefined;
+  const server = createApplication({ config, meetingsClient: client, meetingStore });
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
   const baseUrl = `http://127.0.0.1:${server.address().port}`;
   t.after(async () => {
-    await new Promise((resolve) => server.close(resolve));
-    await rm(directory, { recursive: true, force: true });
+    if (server.listening) await new Promise((resolve) => server.close(resolve));
+    await rm(directory, { recursive: true, force: true, maxRetries: 3 });
   });
 
   const cookies = new Map();
@@ -116,7 +121,7 @@ async function appFixture(t, { overrides = {}, client = fakeClient() } = {}) {
     const session = await (await request('/api/session')).json();
     return session.csrfToken;
   }
-  return { request, login, config, directory, client };
+  return { request, login, config, directory, client, server, baseUrl, cookies };
 }
 
 async function createMeeting(f, csrf, title = 'PG 产线周会') {
@@ -129,12 +134,22 @@ async function createMeeting(f, csrf, title = 'PG 产线周会') {
   return (await response.json()).meeting;
 }
 
-async function uploadAudio(f, csrf, id, { name = 'weekly.wav', bytes = 2048 } = {}) {
+async function uploadAudio(f, csrf, id, { name = 'weekly.wav', bytes = 2048, body, type = 'audio/wav' } = {}) {
   return f.request(`/api/meetings/${id}/audio?name=${encodeURIComponent(name)}`, {
     method: 'POST',
-    body: Buffer.alloc(bytes, 1),
-    headers: { 'X-CSRF-Token': csrf, 'Content-Type': 'audio/wav' },
+    body: body ?? Buffer.alloc(bytes, 1),
+    headers: { 'X-CSRF-Token': csrf, 'Content-Type': type },
   });
+}
+
+async function meetingOf(f, id) {
+  return (await (await f.request(`/api/meetings/${id}`)).json()).meeting;
+}
+
+function gate() {
+  let open;
+  const promise = new Promise((resolve) => { open = resolve; });
+  return { promise, open };
 }
 
 test('meetings API requires a session', async (t) => {
@@ -265,7 +280,7 @@ test('a failed transcription is reported and can be retried', async (t) => {
   const client = fakeClient({
     async transcribeFile() {
       attempts += 1;
-      if (attempts === 1) throw new Error('转写服务返回 500');
+      if (attempts === 1) throw new TranscriptionError('转写服务返回 500');
       return {
         model: 'fake-stt',
         language: 'zh',
@@ -414,4 +429,366 @@ test('a meeting left transcribing is re-queued on boot', async (t) => {
   const orphanMeta = await store.get(orphan.id);
   assert.equal(orphanMeta.status, 'failed');
   assert.match(orphanMeta.error, /没有录音文件/);
+});
+
+// ── review fixes (2026-11-23) ───────────────────────────────────────────────
+
+test('byte-range responses carry exactly the requested bytes', async (t) => {
+  const f = await appFixture(t);
+  const csrf = await f.login();
+  const meeting = await createMeeting(f, csrf);
+  const body = Buffer.from(Array.from({ length: 2048 }, (_, index) => index % 251));
+  await uploadAudio(f, csrf, meeting.id, { body });
+  await waitFor(async () => (await meetingOf(f, meeting.id)).status === 'done');
+
+  const middle = await f.request(`/api/meetings/${meeting.id}/audio`, { headers: { Range: 'bytes=100-109' } });
+  assert.equal(middle.status, 206);
+  assert.deepEqual(Buffer.from(await middle.arrayBuffer()), body.subarray(100, 110));
+
+  const open = await f.request(`/api/meetings/${meeting.id}/audio`, { headers: { Range: 'bytes=2040-' } });
+  assert.equal(open.headers.get('content-range'), 'bytes 2040-2047/2048');
+  assert.deepEqual(Buffer.from(await open.arrayBuffer()), body.subarray(2040));
+
+  const suffix = await f.request(`/api/meetings/${meeting.id}/audio`, { headers: { Range: 'bytes=-5' } });
+  assert.deepEqual(Buffer.from(await suffix.arrayBuffer()), body.subarray(2043));
+
+  const full = await f.request(`/api/meetings/${meeting.id}/audio`);
+  assert.deepEqual(Buffer.from(await full.arrayBuffer()), body);
+});
+
+test('a meeting enqueued again while its job runs is run once more afterwards', async () => {
+  const runs = [];
+  const first = gate();
+  const queue = createTranscriptionQueue({
+    run: async (id) => {
+      runs.push(id);
+      if (runs.length === 1) await first.promise;
+    },
+    logger: null,
+  });
+  assert.equal(queue.enqueue('aaaaaaaa'), true);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(queue.isActive('aaaaaaaa'), true);
+  assert.equal(queue.enqueue('aaaaaaaa'), true);
+  first.open();
+  await waitFor(() => runs.length === 2);
+  await queue.drain();
+  assert.deepEqual(runs, ['aaaaaaaa', 'aaaaaaaa']);
+
+  // A rerun that is cancelled before the job ends does not fire.
+  const second = gate();
+  let more = 0;
+  const cancelling = createTranscriptionQueue({ run: async () => { more += 1; await second.promise; }, logger: null });
+  cancelling.enqueue('bbbbbbbb');
+  await new Promise((resolve) => setImmediate(resolve));
+  cancelling.enqueue('bbbbbbbb');
+  cancelling.dequeue('bbbbbbbb');
+  second.open();
+  await cancelling.drain();
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(more, 1);
+});
+
+// Pauses the worker after it has seen the audio on disk but before it marks the
+// job as started: the window in which a request can change the meeting.
+function gatedStore(config) {
+  const store = new MeetingStore({ root: config.meetingsDir });
+  const original = store.audioStat.bind(store);
+  store.workerGate = gate();
+  store.workerArrived = gate();
+  let gated = true;
+  store.audioStat = async (id, meta) => {
+    const info = await original(id, meta);
+    if (gated && info) {
+      gated = false;
+      store.workerArrived.open();
+      await store.workerGate.promise;
+    }
+    return info;
+  };
+  return store;
+}
+
+test('deleting the audio as the worker starts does not leave the meeting stuck transcribing', async (t) => {
+  let store;
+  const client = fakeClient();
+  const f = await appFixture(t, { client, storeFactory: (config) => (store = gatedStore(config)) });
+  const csrf = await f.login();
+  const meeting = await createMeeting(f, csrf);
+  assert.equal((await uploadAudio(f, csrf, meeting.id)).status, 201);
+  await store.workerArrived.promise;
+
+  const deleted = await f.request(`/api/meetings/${meeting.id}/audio`, { method: 'DELETE', headers: { 'X-CSRF-Token': csrf } });
+  assert.equal((await deleted.json()).meeting.status, 'failed');
+  store.workerGate.open();
+  await new Promise((resolve) => setTimeout(resolve, 150));
+
+  const after = await meetingOf(f, meeting.id);
+  assert.equal(after.status, 'failed');
+  assert.equal(client.calls.length, 0);
+  // The failed record can be revived by uploading again.
+  assert.equal((await uploadAudio(f, csrf, meeting.id)).status, 201);
+  await waitFor(async () => (await meetingOf(f, meeting.id)).status === 'done');
+});
+
+test('a recording replaced while the old one is being picked up is transcribed afterwards', async (t) => {
+  let store;
+  const client = fakeClient();
+  const f = await appFixture(t, { client, storeFactory: (config) => (store = gatedStore(config)) });
+  const csrf = await f.login();
+  const meeting = await createMeeting(f, csrf);
+  await uploadAudio(f, csrf, meeting.id, { name: 'first.wav' });
+  await store.workerArrived.promise;
+
+  // The meeting is still "queued", so a replacement upload is accepted.
+  const replaced = await uploadAudio(f, csrf, meeting.id, { name: 'second.mp3', bytes: 4096, type: 'audio/mpeg' });
+  assert.equal(replaced.status, 201);
+  store.workerGate.open();
+
+  const done = await waitFor(async () => {
+    const current = await meetingOf(f, meeting.id);
+    return current.status === 'done' ? current : null;
+  });
+  assert.equal(done.audio.filename, 'second.mp3');
+  assert.equal(client.calls.at(-1).filename, 'second.mp3');
+  assert.match(client.calls.at(-1).filePath, /audio\.mp3$/);
+  await assert.rejects(() => stat(join(f.config.meetingsDir, meeting.id, 'audio.wav')));
+});
+
+test('re-uploading in another format replaces the old recording and transcribes again', async (t) => {
+  const client = fakeClient();
+  const f = await appFixture(t, { client });
+  const csrf = await f.login();
+  const meeting = await createMeeting(f, csrf);
+  await uploadAudio(f, csrf, meeting.id, { name: 'take1.wav' });
+  await waitFor(async () => (await meetingOf(f, meeting.id)).status === 'done');
+  const second = await uploadAudio(f, csrf, meeting.id, { name: 'take2.mp3', bytes: 1000, type: 'audio/mpeg' });
+  assert.equal(second.status, 201);
+  assert.equal((await second.json()).meeting.status, 'queued');
+  const done = await waitFor(async () => {
+    const current = await meetingOf(f, meeting.id);
+    return current.status === 'done' && current.audio.filename === 'take2.mp3' ? current : null;
+  });
+  assert.equal(done.audio.bytes, 1000);
+  assert.equal(client.calls.length, 2);
+  await assert.rejects(() => stat(join(f.config.meetingsDir, meeting.id, 'audio.wav')));
+  assert.ok((await stat(join(f.config.meetingsDir, meeting.id, 'audio.mp3'))).isFile());
+});
+
+test('internal errors are logged but never shown to the user verbatim', async (t) => {
+  const client = fakeClient({
+    async transcribeFile() {
+      throw Object.assign(new Error("EACCES: permission denied, open '/var/lib/personal-site/meetings/x/audio.wav'"), { code: 'EACCES' });
+    },
+  });
+  const f = await appFixture(t, { client });
+  const csrf = await f.login();
+  const meeting = await createMeeting(f, csrf);
+  const errors = [];
+  const original = console.error;
+  console.error = (...args) => errors.push(args.join(' '));
+  t.after(() => { console.error = original; });
+  await uploadAudio(f, csrf, meeting.id);
+  const failed = await waitFor(async () => {
+    const current = await meetingOf(f, meeting.id);
+    return current.status === 'failed' ? current : null;
+  });
+  console.error = original;
+  assert.doesNotMatch(failed.error, /EACCES|\/var\/lib/);
+  assert.match(failed.error, /转写失败/);
+  assert.ok(errors.some((line) => line.includes('EACCES')));
+});
+
+test('shutting down aborts an in-flight transcription and leaves it for recovery', { timeout: 10_000 }, async (t) => {
+  const started = gate();
+  const client = fakeClient({
+    async transcribeFile({ signal }) {
+      started.open();
+      await new Promise((resolve, reject) => {
+        if (!signal) return; // old behaviour: never settles
+        signal.addEventListener('abort', () => reject(signal.reason), { once: true });
+      });
+    },
+  });
+  const f = await appFixture(t, { client });
+  const csrf = await f.login();
+  const meeting = await createMeeting(f, csrf);
+  await uploadAudio(f, csrf, meeting.id);
+  await started.promise;
+  assert.equal((await meetingOf(f, meeting.id)).status, 'transcribing');
+
+  const began = Date.now();
+  await new Promise((resolve) => f.server.close(resolve));
+  assert.ok(Date.now() - began < 3000, 'close waited for the transcription');
+
+  const store = new MeetingStore({ root: f.config.meetingsDir });
+  const meta = await store.get(meeting.id);
+  assert.equal(meta.status, 'queued');
+  assert.equal(meta.error, null);
+  assert.deepEqual(await store.recover(), [meeting.id]);
+});
+
+test('an interrupted upload releases the lock and leaves no partial file', async (t) => {
+  const f = await appFixture(t);
+  const csrf = await f.login();
+  const meeting = await createMeeting(f, csrf);
+  const url = new URL(`/api/meetings/${meeting.id}/audio?name=cut.wav`, f.baseUrl);
+  await new Promise((resolve) => {
+    const req = httpRequest(url, {
+      method: 'POST',
+      headers: {
+        Cookie: [...f.cookies].map(([name, value]) => `${name}=${value}`).join('; '),
+        Origin: ORIGIN,
+        'X-CSRF-Token': csrf,
+        'Content-Type': 'audio/wav',
+        'Content-Length': '100000',
+      },
+    });
+    req.on('error', () => resolve());
+    req.on('close', () => resolve());
+    req.write(Buffer.alloc(4096, 2), () => setTimeout(() => req.destroy(), 50));
+  });
+  const directory = join(f.config.meetingsDir, meeting.id);
+  await waitFor(async () => {
+    const { readdir } = await import('node:fs/promises');
+    return !(await readdir(directory)).some((name) => name.endsWith('.part'));
+  });
+  assert.equal((await meetingOf(f, meeting.id)).status, 'draft');
+  const retried = await uploadAudio(f, csrf, meeting.id);
+  assert.equal(retried.status, 201);
+});
+
+test('removing a meeting while it is transcribing does not resurrect its folder', async (t) => {
+  const release = gate();
+  const started = gate();
+  const client = fakeClient();
+  const transcribe = client.transcribeFile;
+  client.transcribeFile = async (args) => {
+    started.open();
+    await release.promise;
+    return transcribe(args);
+  };
+  const f = await appFixture(t, { client });
+  const csrf = await f.login();
+  const meeting = await createMeeting(f, csrf);
+  await uploadAudio(f, csrf, meeting.id);
+  await started.promise;
+  const removed = await f.request(`/api/meetings/${meeting.id}`, { method: 'DELETE', headers: { 'X-CSRF-Token': csrf } });
+  assert.equal(removed.status, 200);
+  release.open();
+  await new Promise((resolve) => setTimeout(resolve, 150));
+  await assert.rejects(() => stat(join(f.config.meetingsDir, meeting.id)));
+  assert.equal((await f.request(`/api/meetings/${meeting.id}`)).status, 404);
+});
+
+test('card actions never offer a retry that the server would refuse', () => {
+  const base = { id: 'aaaaaaaa', title: 'x', transcript: null };
+  assert.deepEqual(meetingActions({ ...base, status: 'draft', audio: null }), ['remove']);
+  assert.deepEqual(
+    meetingActions({ ...base, status: 'failed', audio: { deleted: false } }),
+    ['retry', 'deleteAudio', 'remove'],
+  );
+  assert.deepEqual(meetingActions({ ...base, status: 'failed', audio: { deleted: true } }), ['remove']);
+  assert.deepEqual(meetingActions({ ...base, status: 'transcribing', audio: { deleted: false } }), ['remove']);
+  assert.deepEqual(
+    meetingActions({ ...base, status: 'done', audio: { deleted: true }, transcript: { chars: 1 } }),
+    ['view', 'download', 'remove'],
+  );
+});
+
+// ── AssemblyAI client (fake fetch, no network) ──────────────────────────────
+
+function jsonResponse(status, payload) {
+  return new Response(JSON.stringify(payload), { status, headers: { 'content-type': 'application/json' } });
+}
+
+async function audioFixture(t) {
+  const directory = await mkdtemp(join(tmpdir(), 'personal-site-meetings-client-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const filePath = join(directory, 'a.wav');
+  await writeFile(filePath, Buffer.alloc(64, 3));
+  return filePath;
+}
+
+test('the AssemblyAI client retries a reset connection and cleans the Chinese text', async (t) => {
+  const filePath = await audioFixture(t);
+  const seen = [];
+  let submits = 0;
+  const client = createAssemblyAiClient({
+    apiKey: 'test-key',
+    sleep: async () => {},
+    fetchImpl: async (url, init) => {
+      seen.push(`${init.method ?? 'GET'} ${new URL(url).pathname}`);
+      if (url.endsWith('/v2/upload')) {
+        for await (const chunk of init.body) void chunk; // consume the stream like a real server
+        return jsonResponse(200, { upload_url: 'https://cdn.example/a' });
+      }
+      if (url.endsWith('/v2/transcript')) {
+        submits += 1;
+        if (submits === 1) throw Object.assign(new TypeError('fetch failed'), { cause: { code: 'ECONNRESET' } });
+        assert.equal(JSON.parse(init.body).speech_models[0], 'assemblyai-stt-3-7');
+        return jsonResponse(200, { id: 'job1' });
+      }
+      return jsonResponse(200, {
+        status: 'completed',
+        language_code: 'zh',
+        audio_duration: 2.5,
+        text: '我们 来 看 一下 F Y 二 八',
+        utterances: [{ speaker: 'A', start: 0, end: 2500, text: '我们 来 看 一下 F Y 二 八' }],
+      });
+    },
+  });
+  const result = await client.transcribeFile({ filePath, size: 64, mime: 'audio/wav' });
+  assert.equal(submits, 2);
+  assert.equal(result.text, '我们来看一下 FY 二八');
+  assert.equal(result.durationMs, 2500);
+  assert.deepEqual(result.speakers, ['A']);
+  assert.equal(result.words, undefined);
+  assert.deepEqual(seen, ['POST /v2/upload', 'POST /v2/transcript', 'POST /v2/transcript', 'GET /v2/transcript/job1']);
+});
+
+test('the AssemblyAI client reports a bad key once and does not retry it', async (t) => {
+  const filePath = await audioFixture(t);
+  let calls = 0;
+  const client = createAssemblyAiClient({
+    apiKey: 'wrong',
+    sleep: async () => {},
+    fetchImpl: async (url, init) => {
+      calls += 1;
+      if (url.endsWith('/v2/upload')) {
+        for await (const chunk of init.body) void chunk;
+        return jsonResponse(200, { upload_url: 'https://cdn.example/a' });
+      }
+      return jsonResponse(401, { error: 'Invalid API key' });
+    },
+  });
+  await assert.rejects(
+    () => client.transcribeFile({ filePath, size: 64 }),
+    (error) => error instanceof TranscriptionError && /ASSEMBLYAI_API_KEY/.test(error.message),
+  );
+  assert.equal(calls, 2);
+});
+
+test('the AssemblyAI client stops polling as soon as it is aborted', async (t) => {
+  const filePath = await audioFixture(t);
+  const controller = new AbortController();
+  let polls = 0;
+  const client = createAssemblyAiClient({
+    apiKey: 'k',
+    pollIntervalMs: 60_000,
+    fetchImpl: async (url, init) => {
+      if (url.endsWith('/v2/upload')) {
+        for await (const chunk of init.body) void chunk;
+        return jsonResponse(200, { upload_url: 'https://cdn.example/a' });
+      }
+      if (url.endsWith('/v2/transcript')) return jsonResponse(200, { id: 'job2' });
+      polls += 1;
+      setTimeout(() => controller.abort(), 10);
+      return jsonResponse(200, { status: 'processing' });
+    },
+  });
+  const began = Date.now();
+  await assert.rejects(() => client.transcribeFile({ filePath, size: 64, signal: controller.signal }));
+  assert.ok(Date.now() - began < 2000);
+  assert.equal(polls, 1);
 });
