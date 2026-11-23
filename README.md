@@ -20,6 +20,7 @@ Tabler 样式位于 `public/assets/vendor/tabler/tabler.min.css`，上游许可�
 - 格式转换：浏览器本地处理图片、Markdown、JSON、YAML、CSV、Base64、URL 和文本，见下文。HEIC、PDF 与音视频保持不可用。
 - 无水印下载：粘贴小红书或抖音分享文字，解析图片或视频后经站点代理保存。抖音入口 2 不需要本机 DouK，也不需要 Cookie。见下文。
 - 终端：登录后从侧边栏进入 `/terminal`。右侧列出监控里已经登记的服务器，点一台才连接；断开会立刻关掉 SSH。见下文。
+- 会议记录：登录后从侧边栏进入 `/meetings`。上传会议录音后自动排队转写（AssemblyAI-STT-3.7，中英混说），按会议归档；录音可删除释放空间，转写稿与导出文件保留。见下文。
 - Agent 与智能抠图保持清晰标注的待开放入口；Codex Web 外链由环境变量配置。
 
 ## 格式转换
@@ -77,6 +78,45 @@ ssh -N -L 127.0.0.1:7002:127.0.0.1:7002 ops@192.0.2.10
 5. 改回「去白底」后，调整强度不应再请求抠图接口。也可从相册一次选多张，列表里能预览。
 6. 把上海代理关掉后再点智能抠图，应提示服务连不上或超时，并可改用去白底。iPhone 若拦截连续下载，逐张点「保存透明 PNG」。
 
+## 会议记录
+
+侧边栏「会议记录」打开 `/meetings`。页面只接受已登录会话；上传、转写、删除都要带 CSRF 令牌与同源 Origin。
+
+- 上传：点击或拖入音频（wav、mp3、m4a、aac、ogg、opus、flac、webm、amr、wma），单个上限由 `MEETINGS_MAX_UPLOAD_BYTES` 控制（默认 200 MB）。浏览器用 XHR 直传，页面显示上传进度。
+- 队列：新建后先处于「待上传」(`draft`)，音频落盘后进入服务器内的 FIFO 队列，状态依次是「待转写 → 正在转写 → 已转写」，失败时显示「转写失败」和原因，可点「重试转写」。并发数由 `MEETINGS_CONCURRENCY` 控制，默认 1。上传中途关掉标签页会留下一条 `draft`，下次启动不会被当成排队任务。
+- 归档：每条会议在 `MEETINGS_DIR`（默认 `DATA_DIR/meetings`）下有自己的目录，形如 `data/meetings/<id>/`，包含 `meta.json`、`audio.<ext>`、`transcript.json`、`transcript.md`、`transcript.txt`。页面按会议展示卡片，可查看逐段转写稿、下载 Markdown。
+- 释放空间：「删除录音（保留转写）」只删 `audio.<ext>` 并把 `meta.json` 里的 `audio.deleted` 置为 true，转写稿与导出文件不动。整条「删除记录」才会移除整个目录。
+- 崩溃恢复：服务启动时会把残留的 `transcribing` 改回 `queued` 并重新入队，避免任务卡死。
+- 中英混说：转写请求带 `language_detection`，说话人分离用 `speaker_options`（默认允许 1–8 位说话人）。AssemblyAI 对中文按字分词、字间带空格，落盘前会做一次清理（`server/meetings/render.js`），与独立转写脚本的处理一致。
+- Codex 纪要：`POST /api/meetings/:id/summary` 目前返回 501，等接入 Codex 后再补；页面暂时不暴露入口。
+
+依赖环境变量：
+
+```dotenv
+ASSEMBLYAI_API_KEY=
+MEETINGS_MODEL=assemblyai-stt-3-7
+MEETINGS_CONCURRENCY=1
+MEETINGS_MAX_UPLOAD_BYTES=209715200
+MEETINGS_KEYTERMS=PG,产线,自动化
+```
+
+`ASSEMBLYAI_BASE_URL` 默认 `https://api.assemblyai.com`，生产只允许 https（回环 http 仅供本地联调）。`MEETINGS_KEYTERMS` 用逗号或换行分隔，最多 400 项，会作为 `keyterms_prompt` 提升专有名词命中。没有配置 `ASSEMBLYAI_API_KEY` 时上传仍然成功，但转写会以「尚未配置 ASSEMBLYAI_API_KEY」失败，方便先把文件存下来。
+
+接口一览（全部在 `/api/meetings` 下，除列表与详情外都需要 CSRF）：
+
+| 方法 | 路径 | 作用 |
+| --- | --- | --- |
+| GET | `/api/meetings` | 列表、状态统计、队列位置 |
+| POST | `/api/meetings` | 新建一条会议记录 |
+| POST | `/api/meetings/:id/audio?name=` | 原始二进制上传 |
+| GET | `/api/meetings/:id` | 单条详情 |
+| GET | `/api/meetings/:id/audio` | 播放/下载录音（支持 Range） |
+| DELETE | `/api/meetings/:id/audio` | 删除录音，保留转写 |
+| POST | `/api/meetings/:id/transcribe` | 重新排队 |
+| GET | `/api/meetings/:id/transcript?format=json\|md\|txt` | 转写稿 |
+| POST | `/api/meetings/:id/summary` | Codex 纪要占位，返回 501 |
+| DELETE | `/api/meetings/:id` | 删除整条记录 |
+
 ## 运行条件
 
 Node.js 24.14 或更新的 24.x；Linux 用于真实本机监控。内置 `node:sqlite` 在当前版本仍有实验性提示，升级前请跑测试。NAS 和远程云主机需要 Python 3.11+ 与可用的系统服务管理器。不需要前端构建、Docker、Prometheus 或 Grafana。发布目录需要 `npm ci --omit=dev`，只为 SSH 代理安装 `ssh2` 和 `ws`。
@@ -106,6 +146,11 @@ XHS_API_TOKEN=
 XHS_API_TOKEN_FILE=
 DOUYIN_COOKIE=
 REMBG_API_URL=http://127.0.0.1:7002
+ASSEMBLYAI_API_KEY=
+MEETINGS_MODEL=assemblyai-stt-3-7
+MEETINGS_CONCURRENCY=1
+MEETINGS_MAX_UPLOAD_BYTES=209715200
+MEETINGS_KEYTERMS=
 ```
 
 ```sh

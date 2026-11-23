@@ -15,6 +15,11 @@ import { SessionStore } from './auth/sessions.js';
 import { getModules } from './modules/catalog.js';
 import { createMediaHandler } from './media/handler.js';
 import { createMattingHandler } from './matting/handler.js';
+import { createMeetingsHandler } from './meetings/handler.js';
+import { createTranscriptionQueue } from './meetings/queue.js';
+import { createMeetingService } from './meetings/service.js';
+import { MeetingStore } from './meetings/store.js';
+import { createAssemblyAiClient } from './meetings/transcribe.js';
 import { getDashboardMock } from './providers/mock.js';
 import { createLiveDashboardProvider } from './providers/live.js';
 import { NasMonitorStore, cloudDashboardDevice } from './providers/nas.js';
@@ -296,6 +301,36 @@ export function createApplication(options = {}) {
   });
   dashboardProvider?.start?.();
 
+  const meetingStore = options.meetingStore ?? new MeetingStore({ root: config.meetingsDir, now });
+  const meetingsClient = options.meetingsClient ?? createAssemblyAiClient({
+    apiKey: config.assemblyAiApiKey,
+    baseUrl: config.assemblyAiBaseUrl,
+    model: config.meetingsModel,
+    keyterms: config.meetingsKeyterms,
+    pollIntervalMs: config.meetingsPollIntervalMs,
+    timeoutMs: config.meetingsTimeoutMs,
+    now,
+  });
+  const meetingService = createMeetingService({ store: meetingStore, client: meetingsClient, now, logger: console });
+  const meetingsQueue = createTranscriptionQueue({
+    concurrency: config.meetingsConcurrency,
+    run: (id) => meetingService.run(id),
+    now,
+  });
+  const meetings = createMeetingsHandler({
+    config,
+    store: meetingStore,
+    queue: meetingsQueue,
+    now,
+    securityHeaders: headerFor,
+    originAllowed: (request) => isAllowedOrigin(request, config),
+    logger: console,
+  });
+  // A crash can leave a meeting stuck in transcribing; re-queue those on boot.
+  void meetingStore.recover()
+    .then((ids) => { for (const id of ids) meetingsQueue.enqueue(id); })
+    .catch(() => {});
+
   function renderLogin(res, { status = 200, username = '', showError = false, headers = {} } = {}) {
     const csrf = randomBytes(24).toString('base64url');
     const token = createPreloginToken(
@@ -522,6 +557,11 @@ export function createApplication(options = {}) {
           return;
         }
 
+        if (pathname === '/api/meetings' || pathname.startsWith('/api/meetings/')) {
+          await meetings.handle(req, res, { pathname, url, session: apiSession, readJson });
+          return;
+        }
+
         if (req.method === 'GET' && pathname === '/api/dashboard') {
           const dashboard = dashboardProvider
             ? await dashboardProvider.getDashboard()
@@ -559,11 +599,15 @@ export function createApplication(options = {}) {
   server.nasMonitorStore = nasMonitorStore;
   server.close = (callback) => {
     terminal.close();
-    return originalClose((error) => {
+    meetingsQueue.stop();
+    // Let an in-flight transcription finish its meta/transcript writes so a
+    // shutdown (or a test teardown) does not race the filesystem.
+    const finish = () => originalClose((error) => {
       dashboardProvider?.stop?.();
       store.close();
       callback?.(error);
     });
+    Promise.resolve(meetingsQueue.drain?.()).then(finish, finish);
   };
   return server;
 }

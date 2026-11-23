@@ -153,6 +153,44 @@ export function loadConfig(env = process.env, overrides = {}) {
       10_000,
       180_000,
     ),
+    meetingsDir: resolve(dataDir, pick(overrides, env, 'meetingsDir', 'MEETINGS_DIR', 'meetings')),
+    assemblyAiApiKey: textValue(overrides, env, 'assemblyAiApiKey', 'ASSEMBLYAI_API_KEY'),
+    assemblyAiBaseUrl: configuredUrl(
+      overrides,
+      env,
+      'assemblyAiBaseUrl',
+      'ASSEMBLYAI_BASE_URL',
+      'https://api.assemblyai.com',
+    ),
+    meetingsModel: pick(overrides, env, 'meetingsModel', 'MEETINGS_MODEL', 'assemblyai-stt-3-7'),
+    meetingsConcurrency: boundedNumber(
+      pick(overrides, env, 'meetingsConcurrency', 'MEETINGS_CONCURRENCY', 1),
+      1,
+      1,
+      4,
+    ),
+    meetingsMaxUploadBytes: boundedNumber(
+      pick(overrides, env, 'meetingsMaxUploadBytes', 'MEETINGS_MAX_UPLOAD_BYTES', 200 * 1024 * 1024),
+      200 * 1024 * 1024,
+      1024 * 1024,
+      2 * 1024 * 1024 * 1024,
+    ),
+    meetingsPollIntervalMs: boundedNumber(
+      pick(overrides, env, 'meetingsPollIntervalMs', 'MEETINGS_POLL_INTERVAL_MS', 5_000),
+      5_000,
+      1_000,
+      60_000,
+    ),
+    meetingsTimeoutMs: boundedNumber(
+      pick(overrides, env, 'meetingsTimeoutMs', 'MEETINGS_TIMEOUT_MS', 45 * 60 * 1000),
+      45 * 60 * 1000,
+      60_000,
+      3 * 60 * 60 * 1000,
+    ),
+    meetingsKeyterms: (() => {
+      const raw = textValue(overrides, env, 'meetingsKeyterms', 'MEETINGS_KEYTERMS');
+      return raw ? raw.split(/[,，\n]/).map((item) => item.trim()).filter(Boolean).slice(0, 400) : [];
+    })(),
     mediaParseTimeoutMs: boundedNumber(
       pick(overrides, env, 'mediaParseTimeoutMs', 'MEDIA_PARSE_TIMEOUT_MS', 25_000),
       25_000,
@@ -312,6 +350,17 @@ export function validateRuntimeConfig(config) {
   }
   if (config.rembgApiUrl && !isLoopbackHttpUrl(config.rembgApiUrl)) {
     missing.push('REMBG_API_URL must be a loopback http(s) URL');
+  }
+  if (config.assemblyAiBaseUrl) {
+    let parsed = null;
+    try {
+      parsed = new URL(config.assemblyAiBaseUrl);
+    } catch {
+      missing.push('ASSEMBLYAI_BASE_URL must be a valid URL');
+    }
+    if (parsed && parsed.protocol !== 'https:' && !isLoopbackHttpUrl(config.assemblyAiBaseUrl)) {
+      missing.push('ASSEMBLYAI_BASE_URL must be https:// (loopback http is allowed for local testing)');
+    }
   }
   if (config.nasMonitorSecret && config.nasMonitorSecret.length < 32) {
     missing.push('NAS_MONITOR_SECRET must be at least 32 characters');

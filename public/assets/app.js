@@ -1,10 +1,11 @@
 import { apiRequest, ApiError } from './components/api.js?v=1.7.0';
-import { createNavigation } from './components/navigation.js?v=4.0.0';
+import { createNavigation } from './components/navigation.js?v=4.1.0';
 import { element, internalLink, pageHeading, safeInternalPath, safeExternalHref } from './components/dom.js?v=1.4.0';
 import { errorView, loadingView } from './components/feedback.js?v=1.4.0';
 import { renderDashboard } from './pages/dashboard.js?v=4.0.0';
 import { renderPortfolio } from './pages/portfolio.js?v=1.11.0';
 import { renderTools } from './pages/tools.js?v=1.8.0';
+import { renderMeetings } from './pages/meetings.js?v=1.0.0';
 import { renderAgents } from './pages/agents.js?v=1.4.0';
 import { renderPlaceholder } from './pages/placeholder.js?v=1.4.0';
 import { renderRemoveBackground } from './pages/remove-background.js?v=1.5.0';
@@ -31,6 +32,7 @@ const pageRegistry = new Map([
   ['advantech-elevator', renderPortfolio],
   ['ican-elevator', renderPortfolio],
   ['tools', renderTools],
+  ['meetings', renderMeetings],
   ['agents', renderAgents],
   ['remove-background', renderRemoveBackground],
   ['gif-editor', renderGifEditor],
