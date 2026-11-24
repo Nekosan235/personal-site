@@ -3,8 +3,12 @@
 #
 # Install (as root):
 #   install -m 644 deploy/codex-bridge.service /etc/systemd/system/codex-bridge.service
-#   openssl rand -hex 32 > /etc/personal-site/codex-bridge.token
-#   chown root:codex /etc/personal-site/codex-bridge.token && chmod 640 /etc/personal-site/codex-bridge.token
+#   install -d -o root -g codex -m 0750 /etc/codex-bridge
+#   openssl rand -hex 32 > /etc/codex-bridge/token && chown root:codex /etc/codex-bridge/token && chmod 640 /etc/codex-bridge/token
+#   printf '%s\n' '<relay key>' > /etc/codex-bridge/magpie-api.key && chown root:codex /etc/codex-bridge/magpie-api.key && chmod 640 /etc/codex-bridge/magpie-api.key
+#   chmod o+x <release> <release>/scripts && chmod o+r <release>/package.json <release>/scripts/codex-bridge.js
+#     (the codex user must be able to read the script and the package.json next to it;
+#      /etc/personal-site stays closed to it, which is why the secrets live in /etc/codex-bridge)
 #   systemctl daemon-reload && systemctl enable --now codex-bridge
 # Then in /etc/personal-site/site.env (same token):
 #   MEETINGS_SUMMARY_PROVIDER=codex-http
@@ -14,7 +18,7 @@
 # Codex profile: the bridge uses its own CODEX_HOME (/home/codex/.codex-bridge) so the
 # relay/model it uses never changes what CloudCLI (/home/codex/.codex) does. That
 # config.toml sets the relay and `env_key = "MAGPIE_API_KEY"`; the key itself lives in
-# /etc/personal-site/magpie-api.key (root:codex 0640) and is handed to Codex by the bridge.
+# /etc/codex-bridge/magpie-api.key (root:codex 0640) and is handed to Codex by the bridge.
 #
 # Change User/Group/ReadWritePaths if Codex is logged in under another account.
 
@@ -29,12 +33,12 @@ User=codex
 Group=codex
 Environment=NODE_ENV=production
 Environment=CODEX_BRIDGE_ADDR=127.0.0.1:3461
-Environment=CODEX_BRIDGE_TOKEN_FILE=/etc/personal-site/codex-bridge.token
+Environment=CODEX_BRIDGE_TOKEN_FILE=/etc/codex-bridge/token
 Environment=CODEX_BRIDGE_BIN=/usr/local/bin/codex
 Environment=CODEX_BRIDGE_TIMEOUT_MS=600000
 Environment=CODEX_HOME=/home/codex/.codex-bridge
 Environment=HOME=/home/codex
-Environment=CODEX_BRIDGE_API_KEY_FILE=/etc/personal-site/magpie-api.key
+Environment=CODEX_BRIDGE_API_KEY_FILE=/etc/codex-bridge/magpie-api.key
 Environment=CODEX_BRIDGE_API_KEY_ENV=MAGPIE_API_KEY
 Environment=PATH=/usr/local/bin:/usr/bin:/bin
 ExecStart=/usr/local/bin/node /opt/personal-site/current/scripts/codex-bridge.js
