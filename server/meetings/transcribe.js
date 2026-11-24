@@ -93,6 +93,9 @@ export function createAssemblyAiClient({
   sleep = (ms, signal) => delay(ms, undefined, signal ? { signal } : undefined),
   now = () => Date.now(),
   attempts = 4,
+  // Per-request deadline while polling. Must cover downloading the finished
+  // transcript (1–2 MB per hour of audio) on a slow international link.
+  resultTimeoutMs = 10 * 60 * 1000,
 } = {}) {
   const endpoint = String(baseUrl || DEFAULT_BASE).replace(/\/+$/, '');
 
@@ -146,7 +149,15 @@ export function createAssemblyAiClient({
         retryable: response.status === 429 || response.status >= 500,
       });
     }
-    return response.json();
+    // The body is read under the same deadline. A finished hour-long meeting
+    // is a 1–2 MB JSON, and this host's link to the API can drop to ~20 KB/s,
+    // so a slow or cut-off body must be retryable, not fatal.
+    try {
+      return await response.json();
+    } catch (error) {
+      if (signal?.aborted) throw signal.reason ?? error;
+      throw new TranscriptionError(`读取转写结果失败：${describe(error)}`, { retryable: true });
+    }
   }
 
   async function upload(filePath, size, signal) {
@@ -207,7 +218,9 @@ export function createAssemblyAiClient({
       }
       let payload;
       try {
-        payload = await requestJson(`/v2/transcript/${jobId}`, { timeout: 60_000, signal });
+        // Status checks are small until the job completes; the completed
+        // response carries every word and can take minutes on a slow link.
+        payload = await requestJson(`/v2/transcript/${jobId}`, { timeout: resultTimeoutMs, signal });
         consecutiveFailures = 0;
       } catch (error) {
         if (signal?.aborted) throw signal.reason ?? error;

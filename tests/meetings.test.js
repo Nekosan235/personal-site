@@ -760,6 +760,49 @@ test('the AssemblyAI client retries a reset connection and cleans the Chinese te
   assert.deepEqual(seen, ['POST /v2/upload', 'POST /v2/transcript', 'POST /v2/transcript', 'GET /v2/transcript/job1']);
 });
 
+test('the AssemblyAI client waits for a slow completed transcript and retries a cut-off body', async (t) => {
+  const filePath = await audioFixture(t);
+  let polls = 0;
+  const seenTimeouts = [];
+  const client = createAssemblyAiClient({
+    apiKey: 'k',
+    sleep: async () => {},
+    resultTimeoutMs: 5000,
+    fetchImpl: async (url, init) => {
+      if (url.endsWith('/v2/upload')) {
+        for await (const chunk of init.body) void chunk;
+        return jsonResponse(200, { upload_url: 'https://cdn.example/a' });
+      }
+      if (url.endsWith('/v2/transcript')) return jsonResponse(200, { id: 'big' });
+      polls += 1;
+      seenTimeouts.push(init.signal instanceof AbortSignal);
+      if (polls === 1) {
+        // Headers arrive, then the body stream dies mid-way.
+        const body = new ReadableStream({
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode('{"status":"completed","text":"半'));
+            controller.error(Object.assign(new TypeError('terminated'), { cause: { code: 'UND_ERR_SOCKET' } }));
+          },
+        });
+        return new Response(body, { status: 200, headers: { 'content-type': 'application/json' } });
+      }
+      // Second attempt: slow but complete.
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      return jsonResponse(200, {
+        status: 'completed',
+        language_code: 'zh',
+        audio_duration: 1,
+        text: '完整 结果',
+        utterances: [{ speaker: 'A', start: 0, end: 1000, text: '完整 结果' }],
+      });
+    },
+  });
+  const result = await client.transcribeFile({ filePath, size: 64 });
+  assert.equal(polls, 2);
+  assert.equal(result.text, '完整结果');
+  assert.ok(seenTimeouts.every(Boolean));
+});
+
 test('the AssemblyAI client reports a bad key once and does not retry it', async (t) => {
   const filePath = await audioFixture(t);
   let calls = 0;
