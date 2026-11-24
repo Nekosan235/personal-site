@@ -1,0 +1,62 @@
+# Loopback bridge: personal-site meeting summaries -> Codex CLI (scripts/codex-bridge.js).
+# Runs as the account that owns the Codex login so personal-site's own sandbox stays unchanged.
+#
+# Install (as root):
+#   install -m 644 deploy/codex-bridge.service /etc/systemd/system/codex-bridge.service
+#   openssl rand -hex 32 > /etc/personal-site/codex-bridge.token
+#   chown root:codex /etc/personal-site/codex-bridge.token && chmod 640 /etc/personal-site/codex-bridge.token
+#   systemctl daemon-reload && systemctl enable --now codex-bridge
+# Then in /etc/personal-site/site.env (same token):
+#   MEETINGS_SUMMARY_PROVIDER=codex-http
+#   MEETINGS_CODEX_URL=http://127.0.0.1:3461/summarize
+#   MEETINGS_CODEX_TOKEN=<contents of the token file>
+#
+# Codex profile: the bridge uses its own CODEX_HOME (/home/codex/.codex-bridge) so the
+# relay/model it uses never changes what CloudCLI (/home/codex/.codex) does. That
+# config.toml sets the relay and `env_key = "MAGPIE_API_KEY"`; the key itself lives in
+# /etc/personal-site/magpie-api.key (root:codex 0640) and is handed to Codex by the bridge.
+#
+# Change User/Group/ReadWritePaths if Codex is logged in under another account.
+
+[Unit]
+Description=Codex bridge for personal-site meeting summaries (loopback only)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=codex
+Group=codex
+Environment=NODE_ENV=production
+Environment=CODEX_BRIDGE_ADDR=127.0.0.1:3461
+Environment=CODEX_BRIDGE_TOKEN_FILE=/etc/personal-site/codex-bridge.token
+Environment=CODEX_BRIDGE_BIN=/usr/local/bin/codex
+Environment=CODEX_BRIDGE_TIMEOUT_MS=600000
+Environment=CODEX_HOME=/home/codex/.codex-bridge
+Environment=HOME=/home/codex
+Environment=CODEX_BRIDGE_API_KEY_FILE=/etc/personal-site/magpie-api.key
+Environment=CODEX_BRIDGE_API_KEY_ENV=MAGPIE_API_KEY
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+ExecStart=/usr/local/bin/node /opt/personal-site/current/scripts/codex-bridge.js
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=15
+
+# Hardening. Codex needs its own login/state directory writable; everything else is read-only.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/home/codex/.codex-bridge
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictSUIDSGID=true
+LockPersonality=true
+UMask=0077
+# One Codex job at a time; Codex (Node launcher + Rust binary) peaks well under this.
+MemoryMax=512M
+TasksMax=128
+
+[Install]
+WantedBy=multi-user.target

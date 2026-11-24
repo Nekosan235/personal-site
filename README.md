@@ -89,7 +89,8 @@ ssh -N -L 127.0.0.1:7002:127.0.0.1:7002 ops@192.0.2.10
 - 崩溃恢复：服务启动时会把残留的 `transcribing` 改回 `queued` 并重新入队，避免任务卡死；没有录音的 `queued` 会标成失败。正常停服（SIGTERM）会中止正在进行的转写并把它放回 `queued`，不会等满 `MEETINGS_TIMEOUT_MS`；下次启动时重新上传转写（AssemblyAI 会按新任务再计费一次）。
 - 替换录音：对已有录音的记录再次上传会替换旧文件并重新排队；正在转写旧录音时上传的新文件，会在旧任务结束后自动转写，旧结果丢弃。
 - 中英混说：转写请求带 `language_detection`，说话人分离用 `speaker_options`（默认允许 1–8 位说话人）。AssemblyAI 对中文按字分词、字间带空格，落盘前会做一次清理（`server/meetings/render.js`），与独立转写脚本的处理一致。
-- Codex 纪要：`POST /api/meetings/:id/summary` 目前返回 501，等接入 Codex 后再补；页面暂时不暴露入口。
+- 设置页 `/meetings/settings`（会议记录页右上角「设置」）：切换转写服务（AssemblyAI / ElevenLabs Scribe / OpenAI），分别填写 API Key 和模型，编辑专有名词，选择纪要服务、编辑纪要提示词、开关「转写完成后自动生成纪要」。保存在 `DATA_DIR/meetings-settings.json`（权限 0600），优先于环境变量；某项留空就沿用环境变量。Key 只写不读：接口与页面只显示来源和末四位。切换服务从下一条转写开始生效，不用重启。
+- 会议纪要：卡片上「生成纪要」把清理后的转写稿连同提示词交给服务器本机的 Codex（`codex-exec` 调 CLI，或 `codex-http` 调本机桥接服务），结果保存为同目录下的 `summary.md`，可在弹窗里查看、下载。纪要服务没配置时按钮不出现，接口返回 501。转写稿更新后旧纪要会标记为过期。**Codex 部分尚未在真实服务器上验证**，部署步骤见 `HANDOVER-SUMMARY.md`。
 
 依赖环境变量：
 
@@ -104,15 +105,29 @@ MEETINGS_KEYTERMS=PG,产线,自动化
 # MEETINGS_POLL_INTERVAL_MS=5000     # 1000–60000
 # MEETINGS_TIMEOUT_MS=2700000        # 单个任务轮询上限，60000–10800000
 # ASSEMBLYAI_BASE_URL=https://api.assemblyai.com
+# 其他转写服务（也可以在设置页里填）
+MEETINGS_PROVIDER=assemblyai          # assemblyai | elevenlabs | openai，设置页未选择时的默认值
+ELEVENLABS_API_KEY=
+OPENAI_API_KEY=
+# 会议纪要（Codex，见 HANDOVER-SUMMARY.md）
+MEETINGS_SUMMARY_PROVIDER=disabled    # disabled | codex-exec | codex-http
+MEETINGS_CODEX_BIN=                   # codex-exec：codex 可执行文件绝对路径
+# MEETINGS_CODEX_ARGS=["--sandbox","read-only","--skip-git-repo-check"]
+# MEETINGS_CODEX_CWD=
+MEETINGS_CODEX_URL=                   # codex-http：必须是回环地址
+MEETINGS_CODEX_TOKEN=
+# MEETINGS_SUMMARY_TIMEOUT_MS=600000
 ```
 
 `ASSEMBLYAI_BASE_URL` 默认 `https://api.assemblyai.com`，生产只允许 https（回环 http 仅供本地联调）。`MEETINGS_KEYTERMS` 用逗号或换行分隔，最多 400 项，会作为 `keyterms_prompt` 提升专有名词命中。没有配置 `ASSEMBLYAI_API_KEY` 时上传仍然成功，但转写会以「尚未配置 ASSEMBLYAI_API_KEY」失败，方便先把文件存下来。
 
-接口一览（全部在 `/api/meetings` 下，都需要登录会话；POST 与 DELETE 还需要 `X-CSRF-Token` 与同源 `Origin`）：
+接口一览（全部在 `/api/meetings` 下，都需要登录会话；POST、PUT 与 DELETE 还需要 `X-CSRF-Token` 与同源 `Origin`）：
 
 | 方法 | 路径 | 作用 |
 | --- | --- | --- |
-| GET | `/api/meetings` | 列表、状态统计、队列位置 |
+| GET | `/api/meetings` | 列表、状态统计、队列位置、`features`（当前服务、是否有 Key、纪要是否可用） |
+| GET | `/api/meetings/settings` | 读取设置（Key 只返回来源与末四位） |
+| PUT | `/api/meetings/settings` | 保存设置（部分更新；Key 传 `null` 表示清除本页保存值） |
 | POST | `/api/meetings` | 新建一条会议记录 |
 | POST | `/api/meetings/:id/audio?name=` | 原始二进制上传 |
 | GET | `/api/meetings/:id` | 单条详情 |
@@ -121,7 +136,8 @@ MEETINGS_KEYTERMS=PG,产线,自动化
 | POST | `/api/meetings/:id/audio/delete` | 同上（给不便发 DELETE 的客户端用的别名） |
 | POST | `/api/meetings/:id/transcribe` | 重新排队 |
 | GET | `/api/meetings/:id/transcript?format=json\|md\|txt` | 转写稿 |
-| POST | `/api/meetings/:id/summary` | Codex 纪要占位，返回 501 |
+| POST | `/api/meetings/:id/summary` | 交给 Codex 生成纪要（202）；未配置 501，无转写稿或正在生成 409 |
+| GET | `/api/meetings/:id/summary?format=json\|md` | 读取纪要；还没有 409 |
 | DELETE | `/api/meetings/:id` | 删除整条记录 |
 
 ## 运行条件

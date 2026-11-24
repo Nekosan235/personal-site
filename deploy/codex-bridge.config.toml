@@ -1,0 +1,15 @@
+# Codex profile used only by codex-bridge (personal-site meeting summaries).
+# Install: install -d -o codex -g codex -m 700 /home/codex/.codex-bridge
+#          install -o codex -g codex -m 600 deploy/codex-bridge.config.toml /home/codex/.codex-bridge/config.toml
+# CloudCLI keeps using /home/codex/.codex untouched. The key is NOT stored here:
+# Codex reads it from $MAGPIE_API_KEY, which codex-bridge sets from
+# CODEX_BRIDGE_API_KEY_FILE (/etc/personal-site/magpie-api.key, root:codex 0640).
+model_provider = "magpie"
+model = "group/auto-deepseek"
+
+[model_providers.magpie]
+name = "Magpie"
+base_url = "https://magpie.hk.235315.xyz/v1"
+wire_api = "responses"
+env_key = "MAGPIE_API_KEY"
+supports_websockets = false

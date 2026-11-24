@@ -19,7 +19,16 @@ import { createMeetingsHandler } from './meetings/handler.js';
 import { createTranscriptionQueue } from './meetings/queue.js';
 import { createMeetingService } from './meetings/service.js';
 import { MeetingStore } from './meetings/store.js';
-import { createAssemblyAiClient } from './meetings/transcribe.js';
+import { createProviderRegistry } from './meetings/providers.js';
+import { createDynamicTranscriptionClient } from './meetings/dynamic-client.js';
+import { MeetingSettings } from './meetings/settings.js';
+import {
+  createCodexExecProvider,
+  createCodexHttpProvider,
+  createDisabledProvider,
+  createSummaryRegistry,
+  createSummaryService,
+} from './meetings/summary.js';
 import { getDashboardMock } from './providers/mock.js';
 import { createLiveDashboardProvider } from './providers/live.js';
 import { NasMonitorStore, cloudDashboardDevice } from './providers/nas.js';
@@ -302,25 +311,74 @@ export function createApplication(options = {}) {
   dashboardProvider?.start?.();
 
   const meetingStore = options.meetingStore ?? new MeetingStore({ root: config.meetingsDir, now });
-  const meetingsClient = options.meetingsClient ?? createAssemblyAiClient({
-    apiKey: config.assemblyAiApiKey,
-    baseUrl: config.assemblyAiBaseUrl,
-    model: config.meetingsModel,
-    keyterms: config.meetingsKeyterms,
-    pollIntervalMs: config.meetingsPollIntervalMs,
-    timeoutMs: config.meetingsTimeoutMs,
+  const meetingProviders = createProviderRegistry(options.meetingProviders);
+  const summaryRegistry = createSummaryRegistry(options.summaryProviders ?? [
+    createDisabledProvider(),
+    createCodexExecProvider({
+      bin: config.meetingsCodexBin,
+      args: config.meetingsCodexArgs,
+      cwd: config.meetingsCodexCwd,
+      timeoutMs: config.meetingsSummaryTimeoutMs,
+    }),
+    createCodexHttpProvider({
+      url: config.meetingsCodexUrl,
+      token: config.meetingsCodexToken,
+      timeoutMs: config.meetingsSummaryTimeoutMs,
+    }),
+  ]);
+  const meetingSettings = options.meetingSettings ?? new MeetingSettings({
+    path: config.meetingsSettingsPath,
+    providers: meetingProviders,
+    summaryProviders: summaryRegistry,
+    env: {
+      provider: config.meetingsProvider,
+      model: config.meetingsModel,
+      keyterms: config.meetingsKeyterms,
+      summaryProvider: config.meetingsSummaryProvider,
+      apiKeys: {
+        assemblyai: config.assemblyAiApiKey,
+        elevenlabs: config.elevenLabsApiKey,
+        openai: config.openAiApiKey,
+      },
+    },
     now,
   });
+  // Tests inject meetingsClient; production resolves provider + key per job.
+  const meetingsClient = options.meetingsClient ?? createDynamicTranscriptionClient({
+    settings: meetingSettings,
+    registry: meetingProviders,
+    baseOptions: { timeoutMs: config.meetingsTimeoutMs, now },
+    overrides: {
+      assemblyai: { baseUrl: config.assemblyAiBaseUrl, pollIntervalMs: config.meetingsPollIntervalMs },
+    },
+  });
   const meetingService = createMeetingService({ store: meetingStore, client: meetingsClient, now, logger: console });
+  const summaryService = createSummaryService({
+    store: meetingStore,
+    settings: meetingSettings,
+    registry: summaryRegistry,
+    now,
+    logger: console,
+  });
   const meetingsQueue = createTranscriptionQueue({
     concurrency: config.meetingsConcurrency,
-    run: (id, options) => meetingService.run(id, options),
+    run: async (id, runOptions) => {
+      await meetingService.run(id, runOptions);
+      // Optional: hand a fresh transcript straight to Codex.
+      if (runOptions?.signal?.aborted) return;
+      const { autoAfterTranscript, provider } = await meetingSettings.resolveSummary();
+      if (!autoAfterTranscript || !provider.available()) return;
+      const meta = await meetingStore.get(id);
+      if (meta?.status === 'done') await summaryService.request(id);
+    },
     now,
   });
   const meetings = createMeetingsHandler({
     config,
     store: meetingStore,
     queue: meetingsQueue,
+    settings: meetingSettings,
+    summaries: summaryService,
     now,
     securityHeaders: headerFor,
     originAllowed: (request) => isAllowedOrigin(request, config),
@@ -329,6 +387,7 @@ export function createApplication(options = {}) {
   // A crash can leave a meeting stuck in transcribing; re-queue those on boot.
   void meetingStore.recover()
     .then((ids) => { for (const id of ids) meetingsQueue.enqueue(id); })
+    .then(() => summaryService.recover())
     .catch((error) => console.error('[meetings] 启动恢复失败:', error?.message ?? error));
 
   function renderLogin(res, { status = 200, username = '', showError = false, headers = {} } = {}) {
@@ -604,13 +663,14 @@ export function createApplication(options = {}) {
     // only allows TimeoutStopSec=20. Stop listening immediately, then wait
     // for the workers' last meta writes before closing the session store.
     meetingsQueue.stop();
+    summaryService.stop();
     return originalClose((error) => {
       const finish = () => {
         dashboardProvider?.stop?.();
         store.close();
         callback?.(error);
       };
-      Promise.resolve(meetingsQueue.drain?.()).then(finish, finish);
+      Promise.all([meetingsQueue.drain?.(), summaryService.drain()]).then(finish, finish);
     });
   };
   return server;

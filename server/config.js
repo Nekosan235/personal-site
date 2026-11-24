@@ -191,6 +191,37 @@ export function loadConfig(env = process.env, overrides = {}) {
       const raw = textValue(overrides, env, 'meetingsKeyterms', 'MEETINGS_KEYTERMS');
       return raw ? raw.split(/[,，\n]/).map((item) => item.trim()).filter(Boolean).slice(0, 400) : [];
     })(),
+    // Provider used when the settings page has not picked one.
+    meetingsProvider: textValue(overrides, env, 'meetingsProvider', 'MEETINGS_PROVIDER') || 'assemblyai',
+    elevenLabsApiKey: textValue(overrides, env, 'elevenLabsApiKey', 'ELEVENLABS_API_KEY'),
+    openAiApiKey: textValue(overrides, env, 'openAiApiKey', 'OPENAI_API_KEY'),
+    // Settings saved from /meetings/settings (keys, provider, prompt). 0600.
+    meetingsSettingsPath: resolve(
+      dataDir,
+      pick(overrides, env, 'meetingsSettingsFile', 'MEETINGS_SETTINGS_FILE', 'meetings-settings.json'),
+    ),
+    // Meeting summaries through Codex on this server. See HANDOVER-SUMMARY.md.
+    meetingsSummaryProvider: textValue(overrides, env, 'meetingsSummaryProvider', 'MEETINGS_SUMMARY_PROVIDER') || 'disabled',
+    meetingsCodexBin: textValue(overrides, env, 'meetingsCodexBin', 'MEETINGS_CODEX_BIN'),
+    meetingsCodexArgs: (() => {
+      const raw = textValue(overrides, env, 'meetingsCodexArgs', 'MEETINGS_CODEX_ARGS');
+      if (!raw) return [];
+      try {
+        const parsed = JSON.parse(raw);
+        return Array.isArray(parsed) ? parsed.map(String) : [];
+      } catch {
+        return [];
+      }
+    })(),
+    meetingsCodexCwd: textValue(overrides, env, 'meetingsCodexCwd', 'MEETINGS_CODEX_CWD'),
+    meetingsCodexUrl: textValue(overrides, env, 'meetingsCodexUrl', 'MEETINGS_CODEX_URL'),
+    meetingsCodexToken: textValue(overrides, env, 'meetingsCodexToken', 'MEETINGS_CODEX_TOKEN'),
+    meetingsSummaryTimeoutMs: boundedNumber(
+      pick(overrides, env, 'meetingsSummaryTimeoutMs', 'MEETINGS_SUMMARY_TIMEOUT_MS', 10 * 60 * 1000),
+      10 * 60 * 1000,
+      30_000,
+      60 * 60 * 1000,
+    ),
     mediaParseTimeoutMs: boundedNumber(
       pick(overrides, env, 'mediaParseTimeoutMs', 'MEDIA_PARSE_TIMEOUT_MS', 25_000),
       25_000,
@@ -361,6 +392,16 @@ export function validateRuntimeConfig(config) {
     if (parsed && parsed.protocol !== 'https:' && !isLoopbackHttpUrl(config.assemblyAiBaseUrl)) {
       missing.push('ASSEMBLYAI_BASE_URL must be https:// (loopback http is allowed for local testing)');
     }
+  }
+  if (config.meetingsProvider && !['assemblyai', 'elevenlabs', 'openai'].includes(config.meetingsProvider)) {
+    missing.push('MEETINGS_PROVIDER must be assemblyai, elevenlabs or openai');
+  }
+  if (config.meetingsSummaryProvider && !['disabled', 'codex-exec', 'codex-http'].includes(config.meetingsSummaryProvider)) {
+    missing.push('MEETINGS_SUMMARY_PROVIDER must be disabled, codex-exec or codex-http');
+  }
+  // The Codex bridge receives full meeting transcripts: never send them off-box.
+  if (config.meetingsCodexUrl && !isLoopbackHttpUrl(config.meetingsCodexUrl)) {
+    missing.push('MEETINGS_CODEX_URL must be a loopback http(s) URL');
   }
   if (config.nasMonitorSecret && config.nasMonitorSecret.length < 32) {
     missing.push('NAS_MONITOR_SECRET must be at least 32 characters');

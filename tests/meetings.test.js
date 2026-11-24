@@ -271,8 +271,21 @@ test('rejects uploads over the configured limit', async (t) => {
   const f = await appFixture(t, { overrides: { MEETINGS_MAX_UPLOAD_BYTES: String(1024 * 1024) } });
   const csrf = await f.login();
   const meeting = await createMeeting(f, csrf);
-  const response = await uploadAudio(f, csrf, meeting.id, { bytes: 1024 * 1024 + 512 });
-  assert.equal(response.status, 413);
+  // The server answers 413 from Content-Length and closes the connection
+  // without reading the body. Depending on timing the client either reads the
+  // 413 or is reset while still sending; both mean the upload was refused.
+  let status;
+  try {
+    status = (await uploadAudio(f, csrf, meeting.id, { bytes: 1024 * 1024 + 512 })).status;
+  } catch (error) {
+    assert.match(String(error?.cause?.code ?? error?.code), /ECONNRESET|EPIPE|UND_ERR_SOCKET/);
+    status = 'reset';
+  }
+  assert.ok(status === 413 || status === 'reset', `unexpected ${status}`);
+  // Either way nothing was stored and the meeting is still a draft.
+  const after = (await (await f.request(`/api/meetings/${meeting.id}`)).json()).meeting;
+  assert.equal(after.status, 'draft');
+  assert.equal(after.audio, null);
 });
 
 test('a failed transcription is reported and can be retried', async (t) => {
@@ -400,7 +413,7 @@ test('rejects an unknown transcript format', async (t) => {
   assert.equal(response.status, 400);
 });
 
-test('the Codex summary hook reports that it is not connected yet', async (t) => {
+test('requesting a summary without a configured summary service answers 501', async (t) => {
   const f = await appFixture(t);
   const csrf = await f.login();
   const meeting = await createMeeting(f, csrf);
@@ -411,7 +424,7 @@ test('the Codex summary hook reports that it is not connected yet', async (t) =>
   });
   assert.equal(response.status, 501);
   const payload = await response.json();
-  assert.match(payload.error, /Codex/);
+  assert.match(payload.error, /纪要/);
 });
 
 test('a meeting left transcribing is re-queued on boot', async (t) => {

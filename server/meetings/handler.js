@@ -6,7 +6,9 @@ import { createWriteStream } from 'node:fs';
 import { mkdir, rm } from 'node:fs/promises';
 import { extname, join } from 'node:path';
 import { secretEquals } from '../auth/compare.js';
+import { LoginRateLimiter } from '../auth/rate-limit.js';
 import { AUDIO_EXTENSIONS, isValidMeetingId } from './store.js';
+import { SettingsError } from './settings.js';
 
 const MIME_EXT = new Map([
   ['audio/wav', '.wav'],
@@ -52,7 +54,10 @@ const MEETINGS_MESSAGES = {
   tooLarge: '录音文件超过服务器允许的大小上限。',
   noAudio: '这条记录没有可用的录音文件。',
   noTranscript: '这条记录还没有转写稿。',
-  summaryPlanned: 'Codex 纪要整理尚未接入，先把转写稿存好。',
+  summaryPlanned: '会议纪要未启用或未配置，请先到设置页选择纪要服务。',
+  noSummary: '这条记录还没有会议纪要。',
+  settingsUnreadable: '设置内容无法解析。',
+  settingsRate: '保存过于频繁，请稍后再试。',
   uploadBusy: '这条记录正在上传，请稍后再试。',
   busyTranscribing: '这条记录正在转写，请等它完成后再操作。',
   tooManyUploads: '同时上传的文件太多，请等当前上传完成。',
@@ -111,7 +116,17 @@ function publicMeeting(meta, queue) {
         chars: meta.transcript.chars ?? 0,
       }
       : null,
-    summary: meta.summary ?? null,
+    summary: meta.summary
+      ? {
+        status: meta.summary.status ?? null,
+        provider: meta.summary.provider ?? null,
+        error: meta.summary.error ?? null,
+        requestedAt: meta.summary.requestedAt ?? null,
+        completedAt: meta.summary.completedAt ?? null,
+        chars: meta.summary.chars ?? 0,
+        stale: Boolean(meta.summary.stale),
+      }
+      : null,
     queuePosition: queue?.position ? queue.position(meta.id) : null,
   };
 }
@@ -169,10 +184,13 @@ export function createMeetingsHandler({
   config,
   store,
   queue,
+  settings,
+  summaries,
   now = () => Date.now(),
   securityHeaders,
   originAllowed,
   logger = console,
+  settingsLimiter = new LoginRateLimiter({ windowMs: 60 * 1000, maxAttempts: 20 }),
 }) {
   const uploading = new Set();
   let inflightUploads = 0;
@@ -221,11 +239,21 @@ export function createMeetingsHandler({
 
   async function listMeetings(res) {
     const meetings = await store.list();
+    let features = { summaryEnabled: false, provider: null };
+    if (settings) {
+      const [transcription, summary] = await Promise.all([settings.resolveTranscription(), settings.resolveSummary()]);
+      features = {
+        summaryEnabled: Boolean(summary.provider?.available?.()),
+        provider: transcription.providerId,
+        providerReady: Boolean(transcription.apiKey),
+      };
+    }
     sendJson(res, 200, {
       meetings: meetings.map((meta) => publicMeeting(meta, queue)),
       stats: await stats(meetings),
       queueSize: queue.size?.() ?? 0,
       limits: { maxUploadBytes: config.meetingsMaxUploadBytes },
+      features,
     });
   }
 
@@ -402,6 +430,7 @@ export function createMeetingsHandler({
       return;
     }
     queue.dequeue?.(id);
+    summaries?.cancel?.(id);
     await store.remove(id);
     sendJson(res, 200, { ok: true });
   }
@@ -508,11 +537,78 @@ export function createMeetingsHandler({
     stream.pipe(res);
   }
 
+  // ── settings ─────────────────────────────────────────────────────────────
+  async function getSettings(res) {
+    if (!settings) return sendJson(res, 404, { error: 'not found' });
+    sendJson(res, 200, { settings: await settings.public() });
+  }
+
+  async function putSettings(req, res, readJson, session) {
+    if (!settings) return sendJson(res, 404, { error: 'not found' });
+    const rate = settingsLimiter.check(`settings:${session.username}`, now());
+    if (!rate.allowed) return sendJson(res, 429, { error: MEETINGS_MESSAGES.settingsRate });
+    let body;
+    try {
+      body = await readJson(req, 64 * 1024);
+    } catch (error) {
+      const status = error?.statusCode === 413 ? 413 : 400;
+      return sendJson(res, status, { error: MEETINGS_MESSAGES.settingsUnreadable }, status === 413 ? { Connection: 'close' } : {});
+    }
+    try {
+      const next = await settings.update(body ?? {});
+      sendJson(res, 200, { settings: next });
+    } catch (error) {
+      if (error instanceof SettingsError) return sendJson(res, 400, { error: error.message, field: error.field });
+      logger?.error?.('[meetings] 保存设置失败:', error?.message ?? error);
+      sendJson(res, 500, { error: '保存设置失败，请稍后重试。' });
+    }
+  }
+
+  // ── summaries ────────────────────────────────────────────────────────────
+  async function requestSummary(res, id) {
+    if (!summaries) return sendJson(res, 501, { error: MEETINGS_MESSAGES.summaryPlanned });
+    const meta = await store.get(id);
+    if (!meta) return sendJson(res, 404, { error: MEETINGS_MESSAGES.notFound });
+    const result = await summaries.request(id);
+    if (result.error) {
+      // 501 keeps the "not wired up" answer the page and tests already expect.
+      const status = result.status === 503 ? 501 : result.status;
+      return sendJson(res, status, { error: result.error });
+    }
+    sendJson(res, 202, { meeting: publicMeeting(result.meta, queue) });
+  }
+
+  async function serveSummary(req, res, url, id) {
+    const meta = await store.get(id);
+    if (!meta) return sendJson(res, 404, { error: MEETINGS_MESSAGES.notFound });
+    const format = String(url.searchParams.get('format') ?? 'json').toLowerCase();
+    if (!['json', 'md'].includes(format)) return sendJson(res, 400, { error: MEETINGS_MESSAGES.badFormat });
+    const markdown = meta.summary?.status === 'done' || meta.summary?.chars ? await store.readSummary(id) : null;
+    if (markdown == null) return sendJson(res, 409, { error: MEETINGS_MESSAGES.noSummary });
+    if (format === 'md') {
+      const filename = `${safeFilename(meta.title)}-纪要.md`;
+      const disposition = url.searchParams.get('download') === '1' ? 'attachment' : 'inline';
+      res.writeHead(200, {
+        ...securityHeaders('text/markdown; charset=utf-8'),
+        'Content-Disposition': `${disposition}; filename*=UTF-8''${encodeURIComponent(filename)}`,
+      });
+      res.end(markdown);
+      return;
+    }
+    sendJson(res, 200, { meeting: publicMeeting(meta, queue), markdown });
+  }
+
   async function handle(req, res, { pathname, url, session, readJson }) {
     if (!guard(req, res, session)) return;
 
     const parts = pathname.split('/').filter(Boolean); // api / meetings / :id / :action / :sub
     const [, , rawId, action, sub] = parts;
+
+    if (parts.length === 3 && rawId === 'settings') {
+      if (req.method === 'GET') return getSettings(res);
+      if (req.method === 'PUT' || req.method === 'POST') return putSettings(req, res, readJson, session);
+      return sendJson(res, 405, { error: '方法不被支持。' });
+    }
 
     if (parts.length === 2) {
       if (req.method === 'GET') return listMeetings(res);
@@ -549,9 +645,8 @@ export function createMeetingsHandler({
       }
       if (action === 'transcript' && req.method === 'GET') return serveTranscript(req, res, url, id);
       if (action === 'transcribe' && req.method === 'POST') return transcribe(req, res, id);
-      if (action === 'summary' && req.method === 'POST') {
-        return sendJson(res, 501, { error: MEETINGS_MESSAGES.summaryPlanned });
-      }
+      if (action === 'summary' && req.method === 'POST') return requestSummary(res, id);
+      if (action === 'summary' && req.method === 'GET') return serveSummary(req, res, url, id);
       return sendJson(res, 405, { error: '方法不被支持。' });
     }
 

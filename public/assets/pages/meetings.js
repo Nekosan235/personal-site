@@ -1,9 +1,16 @@
 import { apiRequest, ApiError } from '../components/api.js?v=1.7.0';
-import { element, pageHeading } from '../components/dom.js?v=1.4.0';
+import { element, internalLink, pageHeading } from '../components/dom.js?v=1.4.0';
 import { icon } from '../components/icons.js?v=1.11.0';
 import { createPoller } from '../components/poller.js?v=1.4.0';
 
 const ACTIVE_STATUSES = new Set(['queued', 'transcribing']);
+
+const SUMMARY_LABEL = {
+  queued: '纪要排队中',
+  running: '正在生成纪要',
+  done: '已有纪要',
+  failed: '纪要生成失败',
+};
 
 const STATUS_META = {
   draft: { label: '待上传', className: 'meetings-status-draft bg-secondary-lt' },
@@ -66,10 +73,16 @@ function actionButton(label, className, onClick) {
  * tested without a DOM. Retry needs audio on disk (the server answers 409
  * otherwise); deleting audio waits until a queued or running job settles.
  */
-export function meetingActions(meeting) {
+export function meetingActions(meeting, { summaryEnabled = false } = {}) {
   const actions = [];
   const hasAudio = Boolean(meeting?.audio && !meeting.audio.deleted);
+  const summary = meeting?.summary;
+  const summaryBusy = summary?.status === 'queued' || summary?.status === 'running';
   if (meeting?.transcript) actions.push('view', 'download');
+  if (summary?.status === 'done') actions.push('viewSummary');
+  if (meeting?.transcript && summaryEnabled && !summaryBusy && !ACTIVE_STATUSES.has(meeting.status)) {
+    actions.push('summarize');
+  }
   if (meeting?.status === 'failed' && hasAudio) actions.push('retry');
   if (hasAudio && !ACTIVE_STATUSES.has(meeting.status)) actions.push('deleteAudio');
   actions.push('remove');
@@ -88,6 +101,7 @@ export async function renderMeetings({ session, signal }) {
     meetings: [],
     stats: { total: 0, counts: { draft: 0, queued: 0, transcribing: 0, done: 0, failed: 0 }, audioBytes: 0, transcriptCount: 0 },
     limits: { maxUploadBytes: 200 * 1024 * 1024 },
+    features: { summaryEnabled: false, provider: null, providerReady: true },
     signature: '',
     uploads: [],
     busy: new Set(),
@@ -184,13 +198,16 @@ export async function renderMeetings({ session, signal }) {
   uploadButton.addEventListener('click', () => fileInput.click());
 
   const refreshButton = actionButton('刷新', 'btn-outline-secondary', () => { void refresh(); });
+  const settingsLink = internalLink('/meetings/settings', '设置', 'btn btn-outline-secondary');
+  const setupNotice = element('p', { className: 'data-notice meetings-setup', attributes: { hidden: '' } });
 
   page.append(
     pageHeading(
       '会议记录',
       '上传会议录音，自动转写并按会议归档。录音可删除释放空间，转写稿与纪要长期保留。',
-      element('div', { className: 'meetings-head-actions' }, [refreshButton, uploadButton]),
+      element('div', { className: 'meetings-head-actions' }, [refreshButton, settingsLink, uploadButton]),
     ),
+    setupNotice,
     notice,
     statsRow,
     dropZone,
@@ -307,11 +324,32 @@ export async function renderMeetings({ session, signal }) {
         .filter(Boolean).join(' · ');
       body.append(element('p', { className: 'meeting-facts', text: facts }));
     }
+    const summary = meeting.summary;
+    if (summary?.status) {
+      const label = `${SUMMARY_LABEL[summary.status] ?? '纪要'}${summary.stale ? '（转写已更新，建议重新生成）' : ''}`;
+      body.append(element('p', {
+        className: 'meeting-summary-state',
+        text: label,
+        attributes: { 'data-summary': summary.status },
+      }));
+      if (summary.status === 'failed' && summary.error) {
+        body.append(element('p', { className: 'meeting-error', text: summary.error }));
+      }
+    }
 
     const actions = element('div', { className: 'meeting-actions' });
     const busy = state.busy.has(meeting.id);
 
-    for (const action of meetingActions(meeting)) {
+    for (const action of meetingActions(meeting, { summaryEnabled: state.features.summaryEnabled })) {
+      if (action === 'viewSummary') {
+        actions.append(actionButton('查看纪要', 'btn-outline-primary', () => void openSummary(meeting)));
+        continue;
+      }
+      if (action === 'summarize') {
+        const label = summary?.status === 'done' ? '重新生成纪要' : '生成纪要';
+        actions.append(actionButton(busy ? '提交中…' : label, 'btn-outline-primary', () => void summarize(meeting)));
+        continue;
+      }
       if (action === 'view') {
         actions.append(actionButton('查看转写稿', 'btn-outline-primary', () => void openTranscript(meeting)));
       } else if (action === 'download') {
@@ -367,13 +405,38 @@ export async function renderMeetings({ session, signal }) {
         meeting.audio?.bytes ?? '',
         meeting.transcript?.completedAt ?? '',
         meeting.error ?? '',
+        meeting.queuePosition ?? '',
+        meeting.summary?.status ?? '',
+        meeting.summary?.completedAt ?? '',
+        meeting.summary?.stale ? 's' : '',
       ].join(':'))
       .join('|');
+  }
+
+  function renderSetup() {
+    const { providerReady } = state.features;
+    if (providerReady === false) {
+      setupNotice.replaceChildren(
+        element('span', { text: '当前转写服务还没有 API Key，上传的录音会转写失败。' }),
+        internalLink('/meetings/settings', '去设置', 'text-link'),
+      );
+      setupNotice.hidden = false;
+    } else {
+      setupNotice.hidden = true;
+    }
   }
 
   function applyData(data) {
     const meetings = Array.isArray(data.meetings) ? data.meetings : [];
     const stats = data.stats ?? state.stats;
+    if (data.features && typeof data.features === 'object') {
+      const before = JSON.stringify(state.features);
+      state.features = { ...state.features, ...data.features };
+      if (before !== JSON.stringify(state.features)) {
+        state.signature = '';
+        renderSetup();
+      }
+    }
     if (Number.isFinite(data.limits?.maxUploadBytes) && data.limits.maxUploadBytes > 0) {
       state.limits.maxUploadBytes = data.limits.maxUploadBytes;
       updateDropHint();
@@ -522,6 +585,56 @@ export async function renderMeetings({ session, signal }) {
     }
   }
 
+  async function openSummary(meeting) {
+    const requestId = ++transcriptRequest;
+    dialogTitle.textContent = `${meeting.title} · 会议纪要`;
+    dialogBody.replaceChildren(element('p', { className: 'meetings-dialog-loading', text: '正在读取纪要…' }));
+    if (!dialog.open) dialog.showModal();
+    try {
+      const data = await apiRequest(`/api/meetings/${meeting.id}/summary`, { signal });
+      if (requestId !== transcriptRequest) return;
+      const markdown = typeof data?.markdown === 'string' ? data.markdown : '';
+      if (!markdown) throw new Error('没有纪要内容');
+      // Shown as plain text on purpose: the Markdown comes from a model and is
+      // never parsed into HTML here. Download the .md for rich rendering.
+      dialogBody.replaceChildren(
+        element('div', { className: 'meetings-dialog-facts' }, [
+          element('span', { text: `生成于 ${formatDate(data.meeting?.summary?.completedAt)}` }),
+          data.meeting?.summary?.stale ? element('span', { text: '转写已更新，纪要可能过期' }) : null,
+          element('a', {
+            className: 'text-link',
+            text: '下载 .md',
+            attributes: { href: `/api/meetings/${meeting.id}/summary?format=md&download=1`, download: '' },
+          }),
+        ]),
+        element('pre', { className: 'meetings-summary-text', text: markdown }),
+      );
+    } catch (error) {
+      if (requestId !== transcriptRequest) return;
+      if (error instanceof ApiError && error.status === 401) return;
+      dialogBody.replaceChildren(element('p', { className: 'meetings-error', text: error?.message || '读取纪要失败。' }));
+    }
+  }
+
+  async function summarize(meeting) {
+    setBusy(meeting.id, true);
+    try {
+      await apiRequest(`/api/meetings/${meeting.id}/summary`, {
+        method: 'POST',
+        csrfToken: session.csrfToken,
+        body: {},
+        signal,
+      });
+      showNotice('已提交给 Codex 生成纪要，完成后卡片上会出现「查看纪要」。');
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401) return;
+      showNotice(error?.message || '提交纪要失败。', 'error');
+    } finally {
+      setBusy(meeting.id, false);
+      void refresh();
+    }
+  }
+
   async function retry(meeting) {
     setBusy(meeting.id, true);
     try {
@@ -583,6 +696,7 @@ export async function renderMeetings({ session, signal }) {
   updateDropHint();
   render();
   await refresh();
+  renderSetup();
 
   const poller = createPoller({
     request: (requestSignal) => apiRequest('/api/meetings', { signal: requestSignal }),

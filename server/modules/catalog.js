@@ -12,6 +12,7 @@ export function getModules(config) {
     { id: 'ican-elevator', path: '/work/ican-elevator', title: '基于 AI 的非接触式电梯控制系统', nav: false, status: 'ready', group: 'work' },
     { id: 'tools', path: '/tools', title: '工具箱', nav: true, status: 'ready' },
     { id: 'meetings', path: '/meetings', title: '会议记录', nav: true, status: 'ready' },
+    { id: 'meetings-settings', path: '/meetings/settings', title: '会议记录设置', nav: false, status: 'ready', group: 'meetings' },
     { id: 'terminal', path: '/terminal', title: '终端', nav: true, status: 'ready' },
     { id: 'agents', path: '/agents', title: '我的 Agent', nav: true, status: 'planned' },
     {

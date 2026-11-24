@@ -2521,3 +2521,33 @@ html, body, .card, .app-sidebar.navbar, .app-topbar.navbar { transition: backgro
   .meetings-transcript-row { grid-template-columns: 76px minmax(0, 1fr); }
   .meetings-transcript-time { display: none; }
 }
+
+/* ── 会议记录设置（/meetings/settings）与纪要 ─────────────────────────── */
+.meetings-setup { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; border-left: 6px solid var(--warning); }
+.meeting-summary-state { margin: 0; font-size: 11px; font-family: var(--font-mono); color: var(--secondary); }
+.meeting-summary-state[data-summary="done"] { color: var(--ink); }
+.meeting-summary-state[data-summary="failed"] { color: var(--accent); }
+.meetings-summary-text { margin: 0; padding: 10px 12px; white-space: pre-wrap; word-break: break-word; font-family: var(--font-sans); font-size: 13px; line-height: 1.75; background: var(--surface-2); border: 1px solid var(--line); }
+
+.meetings-settings-page { display: flex; flex-direction: column; gap: 12px; }
+.ms-form { display: flex; flex-direction: column; gap: 14px; }
+.ms-section { margin: 0; padding: 14px; display: flex; flex-direction: column; gap: 12px; background: var(--paper); border: var(--bw) solid var(--line); box-shadow: var(--shadow-sm); }
+.ms-section-title { float: none; width: auto; margin: 0; padding: 0; font-size: 15px; font-weight: 700; }
+.ms-field { display: flex; flex-direction: column; gap: 4px; }
+.ms-field .form-label { margin: 0; font-size: 12px; font-weight: 700; }
+.ms-hint { font-size: 11px; line-height: 1.6; }
+.ms-providers { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.ms-provider { padding: 12px; display: flex; flex-direction: column; gap: 8px; background: var(--paper); border: var(--bw) solid var(--line); opacity: .72; }
+.ms-provider[data-active="true"] { opacity: 1; border-left: 6px solid var(--success); box-shadow: var(--shadow-sm); }
+.ms-provider-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.ms-provider-title { margin: 0; font-size: 14px; }
+.ms-provider-desc { margin: 0; font-size: 12px; line-height: 1.6; }
+.ms-key-status { flex: none; padding: 3px 7px; font-size: 11px; font-family: var(--font-mono); border: 1px solid var(--line); }
+.ms-clear { margin: 0; font-size: 12px; }
+.ms-keyterms, .ms-prompt { font-family: var(--font-mono); font-size: 12px; line-height: 1.6; }
+.ms-row, .ms-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.ms-actions { justify-content: flex-end; }
+
+@media (max-width: 960px) {
+  .ms-providers { grid-template-columns: minmax(0, 1fr); }
+}

@@ -46,6 +46,23 @@ function mergeMeta(meta, partial, timestamp) {
   return next;
 }
 
+// On Windows, replacing a file fails with EPERM/EACCES/EBUSY while another
+// handle has it open — for meta.json that is any concurrent list()/get() from
+// a polling page. The window is a few milliseconds, so retry briefly instead
+// of failing the write. On Linux rename over an open file always succeeds and
+// this loop never runs a second time.
+const TRANSIENT_RENAME = new Set(['EPERM', 'EACCES', 'EBUSY']);
+export async function renameWithRetry(from, to, { attempts = 8 } = {}) {
+  for (let index = 0; ; index += 1) {
+    try {
+      return await rename(from, to);
+    } catch (error) {
+      if (!TRANSIENT_RENAME.has(error?.code) || index >= attempts - 1) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 10 * (index + 1)));
+    }
+  }
+}
+
 function sanitizeTitle(value, fallback) {
   const text = String(value ?? '').replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim();
   return (text || fallback).slice(0, 120);
@@ -128,7 +145,12 @@ export class MeetingStore {
     const target = this.metaPath(meta.id);
     const temporary = `${target}.${randomBytes(4).toString('hex')}.tmp`;
     await writeFile(temporary, JSON.stringify(meta, null, 2), 'utf8');
-    await rename(temporary, target);
+    try {
+      await renameWithRetry(temporary, target);
+    } catch (error) {
+      await rm(temporary, { force: true }).catch(() => {});
+      throw error;
+    }
     return meta;
   }
 
@@ -245,7 +267,11 @@ export class MeetingStore {
       await writeFile(join(directory, 'transcript.json'), json, 'utf8');
       await writeFile(join(directory, 'transcript.md'), markdown, 'utf8');
       await writeFile(join(directory, 'transcript.txt'), text, 'utf8');
-      return this.transcriptFields(transcript, json);
+      const fields = this.transcriptFields(transcript, json);
+      // A new transcript makes an existing summary out of date; keep the file
+      // but flag it so the page can offer to regenerate.
+      if (meta.summary?.status === 'done') fields.summary = { ...meta.summary, stale: true };
+      return fields;
     });
   }
 
@@ -254,6 +280,7 @@ export class MeetingStore {
       status: 'done',
       error: null,
       transcript: {
+        provider: transcript.provider ?? null,
         model: transcript.model ?? null,
         language: transcript.language ?? null,
         durationMs: transcript.durationMs ?? 0,
@@ -264,6 +291,29 @@ export class MeetingStore {
       },
       queue: { finishedAt: this.now() },
     };
+  }
+
+  /**
+   * Write summary.md and update meta in one locked step. `decide(meta)`
+   * returns the partial to merge (usually the summary status), or a falsy
+   * value to drop the result — e.g. the meeting was re-transcribed while the
+   * summary was being generated.
+   */
+  async writeSummary(id, markdown, decide) {
+    return this.update(id, async (meta) => {
+      const partial = await decide(meta);
+      if (!partial) return null;
+      await writeFile(join(this.dir(id), 'summary.md'), markdown, 'utf8');
+      return partial;
+    });
+  }
+
+  async readSummary(id) {
+    try {
+      return await readFile(join(this.dir(id), 'summary.md'), 'utf8');
+    } catch {
+      return null;
+    }
   }
 
   async readTranscript(id) {
