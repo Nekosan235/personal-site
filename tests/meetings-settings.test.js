@@ -613,3 +613,11 @@ test('card actions offer a summary only when the service is on and nothing is ru
   assert.ok(meetingActions({ ...done, summary: { status: 'done' } }).includes('viewSummary'));
   assert.ok(!meetingActions({ ...done, status: 'transcribing' }, { summaryEnabled: true }).includes('summarize'));
 });
+
+test('the summary text sets its own colour so Tabler\'s light <pre> colour never leaks in', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const css = await readFile(new URL('../public/assets/styles.css', import.meta.url), 'utf8');
+  const rule = /\.meetings-summary-text\s*\{([^}]*)\}/.exec(css)?.[1] ?? '';
+  assert.match(rule, /(^|;)\s*color:\s*var\(--ink\)/);
+  assert.match(rule, /background:\s*var\(--surface-2\)/);
+});
